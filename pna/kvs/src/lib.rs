@@ -88,11 +88,14 @@ impl KvStore {
     }
 }
 
-/// Error type for operations on the key-value store
+/// Error type for operations on the key-value store.
 #[derive(Debug)]
 pub enum KvStoreError {
     /// Error from I/O operations
     IOError(std::io::Error),
+
+    /// Error when performing operations on non-existent key
+    KeyNotFound(String),
 }
 
 impl std::error::Error for KvStoreError {}
@@ -100,7 +103,16 @@ impl std::error::Error for KvStoreError {}
 impl std::fmt::Display for KvStoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::IOError(err) => write!(f, "Error while performing I/O operations: {}", err),
+            Self::IOError(err) => {
+                write!(
+                    f,
+                    "Error encountered while performing I/O operations - {}",
+                    err
+                )
+            }
+            Self::KeyNotFound(key) => {
+                write!(f, "Key not found - '{}'", key)
+            }
         }
     }
 }
