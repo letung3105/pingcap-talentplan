@@ -65,18 +65,24 @@ impl KvStore {
         Ok(Self { index, log })
     }
 
-    /// Set the value at the given key. If the key already contains a value, the contained value
-    /// will be updated to the new value.
+    /// Set the given key to a value. An error is returned if the value is not written successfully.
+    ///
+    /// When a value is set to the key, a `Set` command is written to disk in a sequential log, then the log pointer
+    /// (file offset) is stored in an in-memory index from key to pointer.
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
         todo!()
     }
 
-    /// Get the value at the given key. If the key doesn't contain a value, the method will return `None`
+    /// Get the value of the given key. If the key does not exist, return `None`. An error is returned if the key is
+    /// not read successfully.
     pub fn get(&mut self, key: String) -> Result<Option<String>> {
         todo!()
     }
 
-    /// Remove the value at the given key. No error will be reported, if the key doesn't contain a value
+    /// Remove the given key. An error is returned if the key does not exist or if it is not removed successfully.
+    ///
+    /// When removing a key, a `Remove` command is written to disk a in sequential log, the removes the the key from
+    /// the in-memory index.
     pub fn remove(&mut self, key: String) -> Result<()> {
         todo!()
     }
