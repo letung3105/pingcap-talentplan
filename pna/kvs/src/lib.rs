@@ -109,9 +109,9 @@ impl KvStore {
     ///
     /// # Behavior
     ///
-    /// When a value is set to the key, a `Set` command is written to disk in a sequential log,
+    /// When setting a value a key, a `Set` command is written to disk in a sequential log,
     /// then the log pointer (file offset) is stored in an in-memory index from key to pointer.
-    /// The following describes the steps that will be taken.
+    /// The following steps will be taken:
     ///
     /// 1. Use a data structure to represent the command
     /// 2. Serialize the command
@@ -120,22 +120,56 @@ impl KvStore {
     /// # Error
     ///
     /// + Errors of kind `bincode::Error` will be returned if the command can not be serialized
-    /// + Errors of kind `std::io::Error` will be returned if error occurs while performing the operation
+    /// + Errors of kind `std::io::Error` will be returned if error occurs while appending data
+    ///   to the log
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
         self.append_log(KvStoreCommand::Set(key, value))
     }
 
-    /// Get the value of the given key. If the key does not exist, return `None`. An error is returned if the key is
-    /// not read successfully.
+    /// Get the value of the given key. If the key does not exist, return `None`. An error is 
+    /// returned if the key is not read successfully.
+    ///
+    /// # Behavior
+    ///
+    /// When retrieving a value for a key, the store searches for the key in the index. If
+    /// found an index, loads the command from the log at the corresponding log pointer,
+    /// evaluates the command, and returns the result. The following steps will be taken:
+    ///
+    /// 1. Rebuilds the index
+    /// 2. Checks if the key exists in the index
+    /// 3. 2 cases:
+    ///     + Key not exists: Returns `None`
+    ///     + Key exists: Returns the value
+    ///
+    /// # Error
+    ///
+    /// + Errors of kind `std::io::Error` will be returned if error occurs while loading commands
+    ///   from the log
     pub fn get(&mut self, key: String) -> Result<Option<String>> {
         self.build_index()?;
         Ok(self.index.get(&key).cloned())
     }
 
-    /// Remove the given key. An error is returned if the key does not exist or if it is not removed successfully.
+    /// Remove the given key. An error is returned if the key does not exist or if it is not
+    /// removed successfully.
     ///
-    /// When removing a key, a `Remove` command is written to disk a in sequential log, the removes the the key from
-    /// the in-memory index.
+    /// # Behavior
+    ///
+    /// When removing a key, the store searches for the key in the index. If an index is found,
+    /// a `Remove` command is written to disk a in sequential log, and the key is removed from
+    /// the in-memory index. The following steps will be taken
+    ///
+    /// 1. Rebuilds the index
+    /// 2. Checks if the key exists in the index
+    /// 3. 2 cases:
+    ///     + Key not exists: Return `KeyNotFound` error
+    ///     + Key exists: Write a remove command to the log
+    ///
+    /// # Error
+    ///
+    /// + Errors of kind `std::io::Error` will be returned if an error occurs while storing/loading
+    ///   commands from the log
+    /// + Errors of kind `KvStoreError::KeyNotFound` will be returned if the key does not exist
     pub fn remove(&mut self, key: String) -> Result<()> {
         self.build_index()?;
         if !self.index.contains_key(&key) {
