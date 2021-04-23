@@ -4,6 +4,7 @@
 #![deny(missing_docs, missing_debug_implementations)]
 
 use std::collections::HashMap;
+use std::fs::{File, OpenOptions};
 use std::path::Path;
 
 /// A short-hand for `std::result::Result<T, KvStoreError>`.
@@ -44,15 +45,24 @@ pub type Error = KvStoreError;
 /// }
 /// ```
 #[derive(Debug)]
-pub struct KvStore {}
+pub struct KvStore {
+    index: HashMap<String, String>,
+    log: File,
+}
 
 impl KvStore {
     /// Open the key-value store that is located at the given path and return the store to the caller.
-    pub fn open<P>(_path: P) -> Result<Self>
+    pub fn open<P>(path: P) -> Result<Self>
     where
         P: AsRef<Path>,
     {
-        todo!()
+        let index = HashMap::default();
+        let log = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .append(true)
+            .open(path)?;
+        Ok(Self { index, log })
     }
 
     /// Set the value at the given key. If the key already contains a value, the contained value
@@ -74,4 +84,23 @@ impl KvStore {
 
 /// Error type for operations on the key-value store
 #[derive(Debug)]
-pub enum KvStoreError {}
+pub enum KvStoreError {
+    /// Error from I/O operations
+    IOError(std::io::Error),
+}
+
+impl std::error::Error for KvStoreError {}
+
+impl std::fmt::Display for KvStoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::IOError(err) => write!(f, "Error while performing I/O operations: {}", err),
+        }
+    }
+}
+
+impl From<std::io::Error> for KvStoreError {
+    fn from(err: std::io::Error) -> Self {
+        Self::IOError(err)
+    }
+}
