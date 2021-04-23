@@ -44,17 +44,7 @@ pub type Error = KvStoreError;
 /// }
 /// ```
 #[derive(Debug)]
-pub struct KvStore {
-    map: HashMap<String, String>,
-}
-
-impl Default for KvStore {
-    fn default() -> Self {
-        Self {
-            map: HashMap::new(),
-        }
-    }
-}
+pub struct KvStore {}
 
 impl KvStore {
     /// Open the key-value store that is located at the given path and return the store to the caller.
@@ -64,27 +54,21 @@ impl KvStore {
     {
         todo!()
     }
-    /// Create a new key-value store.
-    pub fn new() -> Self {
-        Default::default()
-    }
 
     /// Set the value at the given key. If the key already contains a value, the contained value
     /// will be updated to the new value.
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
-        self.map.insert(key, value);
-        Ok(())
+        todo!()
     }
 
     /// Get the value at the given key. If the key doesn't contain a value, the method will return `None`
     pub fn get(&mut self, key: String) -> Result<Option<String>> {
-        Ok(self.map.get(&key).cloned())
+        todo!()
     }
 
     /// Remove the value at the given key. No error will be reported, if the key doesn't contain a value
     pub fn remove(&mut self, key: String) -> Result<()> {
-        self.map.remove(&key);
-        Ok(())
+        todo!()
     }
 }
 
