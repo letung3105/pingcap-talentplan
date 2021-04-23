@@ -1,15 +1,26 @@
 use kvs::KvStore;
 use structopt::StructOpt;
 
-fn main() -> kvs::Result<()> {
-    let mut kvs = KvStore::open("dbinstance/logfile")?;
+fn main() {
+    if let Err(err) = run() {
+        println!("{}", err);
+        std::process::exit(1);
+    }
+}
+
+fn run() -> kvs::Result<()> {
+    let mut kvs = KvStore::open("./")?;
     match KvStoreOpt::from_args().sub_command {
-        KvStoreSubCommand::Set { key, value } => kvs.set(key, value)?,
-        KvStoreSubCommand::Get { key } => match kvs.get(key.clone())? {
-            None => return Err(kvs::KvStoreError::KeyNotFound(key)),
-            Some(value) => println!("{} = {}", key, value),
+        KvStoreSubCommand::Set { key, value } => {
+            kvs.set(key, value)?;
+        }
+        KvStoreSubCommand::Get { key } => match kvs.get(key)? {
+            Some(value) => println!("{}", value),
+            None => println!("{}", kvs::KvStoreError::KeyNotFound),
         },
-        KvStoreSubCommand::Rm { key } => kvs.remove(key)?,
+        KvStoreSubCommand::Rm { key } => {
+            kvs.remove(key)?;
+        }
     }
     Ok(())
 }
