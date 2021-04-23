@@ -3,6 +3,7 @@
 
 #![deny(missing_docs, missing_debug_implementations)]
 
+use serde::Serialize;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::path::Path;
@@ -67,10 +68,23 @@ impl KvStore {
 
     /// Set the given key to a value. An error is returned if the value is not written successfully.
     ///
-    /// When a value is set to the key, a `Set` command is written to disk in a sequential log, then the log pointer
-    /// (file offset) is stored in an in-memory index from key to pointer.
+    /// # Behavior
+    ///
+    /// When a value is set to the key, a `Set` command is written to disk in a sequential log,
+    /// then the log pointer (file offset) is stored in an in-memory index from key to pointer.
+    /// The following describes the steps that will be taken.
+    ///
+    /// 1. Use a data structure to represent the command
+    /// 2. Serialize the command
+    /// 3. Append the serialized command to the file containing the log
+    ///
+    /// # Error
+    ///
+    /// + Errors of kind `bincode::Error` will be returned if the command can not be serialized
+    /// + Errors of kind `std::io::Error` will be returned if error occurs while performing the operation
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
-        todo!()
+        let cmd = KvStoreCommand::Set(key, value);
+        self.append_log(&cmd)
     }
 
     /// Get the value of the given key. If the key does not exist, return `None`. An error is returned if the key is
@@ -86,13 +100,34 @@ impl KvStore {
     pub fn remove(&mut self, key: String) -> Result<()> {
         todo!()
     }
+
+    fn append_log(&mut self, command: &KvStoreCommand) -> Result<()> {
+        bincode::serialize_into(&mut self.log, command)?;
+        Ok(())
+    }
+}
+
+/// Data structure for possible operations on the key-value store
+#[derive(Debug, Serialize)]
+pub enum KvStoreCommand {
+    /// On-disk representation of a set command
+    Set(String, String),
+
+    /// On-disk representation of a get command
+    Get(String),
+
+    /// On-disk representation of a remove command
+    Rm(String),
 }
 
 /// Error type for operations on the key-value store.
 #[derive(Debug)]
 pub enum KvStoreError {
     /// Error from I/O operations
-    IOError(std::io::Error),
+    IoError(std::io::Error),
+
+    /// Error from serialization/deserialization operations
+    Bincode(bincode::Error),
 
     /// Error when performing operations on non-existent key
     KeyNotFound(String),
@@ -103,10 +138,17 @@ impl std::error::Error for KvStoreError {}
 impl std::fmt::Display for KvStoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::IOError(err) => {
+            Self::IoError(err) => {
                 write!(
                     f,
                     "Error encountered while performing I/O operations - {}",
+                    err
+                )
+            }
+            Self::Bincode(err) => {
+                write!(
+                    f,
+                    "Error encountered while serializing/deserializing data - {}",
                     err
                 )
             }
@@ -119,6 +161,12 @@ impl std::fmt::Display for KvStoreError {
 
 impl From<std::io::Error> for KvStoreError {
     fn from(err: std::io::Error) -> Self {
-        Self::IOError(err)
+        Self::IoError(err)
+    }
+}
+
+impl From<bincode::Error> for KvStoreError {
+    fn from(err: bincode::Error) -> Self {
+        Self::Bincode(err)
     }
 }
