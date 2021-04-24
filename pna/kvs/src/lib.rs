@@ -19,7 +19,7 @@ use std::{collections::HashMap, io::Write};
 /// # Usages
 ///
 /// ```
-/// use kvs::{Result, KvStore};
+/// use kvs::{KvStore, Result};
 /// use tempfile::TempDir;
 ///
 /// fn main() -> Result<()> {
@@ -45,7 +45,7 @@ use std::{collections::HashMap, io::Write};
 /// ```
 #[derive(Debug)]
 pub struct KvStore {
-    index: HashMap<String, String>,
+    index: HashMap<String, CommandIndex>,
     writer: BufWriter<File>,
     reader: BufReader<File>,
 }
@@ -74,23 +74,11 @@ impl KvStore {
             writer,
             reader,
         };
+        kvs.reader.seek(SeekFrom::Start(0))?;
+        kvs.writer.seek(SeekFrom::End(0))?;
         kvs.build_index()?;
-        Ok(kvs)
-    }
 
-    /// Set a value to a key.
-    ///
-    /// # Error
-    ///
-    /// Error from I/O operations and serialization/deserialization operations will be propagated.
-    pub fn set(&mut self, key: String, value: String) -> Result<()> {
-        /*
-            When setting a value a key, a `Set` command is written to disk in a sequential log,
-            then the log pointer (file offset) is stored in an in-memory index from key to pointer.
-        */
-        self.append_log(Command::Set(key.clone(), value.clone()))?;
-        self.index.insert(key, value);
-        Ok(())
+        Ok(kvs)
     }
 
     /// Returns the value of a key, if the key exists. Otherwise, returns `None`.
@@ -104,7 +92,30 @@ impl KvStore {
             found an index, loads the command from the log at the corresponding log pointer,
             evaluates the command, and returns the result.
         */
-        Ok(self.index.get(&key).cloned())
+        if let Some(CommandIndex { pos }) = self.index.get(&key) {
+            self.reader.seek(SeekFrom::Start(*pos))?;
+            if let Command::Set(_, val) = bincode::deserialize_from(&mut self.reader)? {
+                return Ok(Some(val));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Set a value to a key.
+    ///
+    /// # Error
+    ///
+    /// Error from I/O operations and serialization/deserialization operations will be propagated.
+    pub fn set(&mut self, key: String, val: String) -> Result<()> {
+        /*
+            When setting a value a key, a `Set` command is written to disk in a sequential log,
+            then the log pointer (file offset) is stored in an in-memory index from key to pointer.
+        */
+        let pos = self.writer.stream_position()?;
+        bincode::serialize_into(&mut self.writer, &Command::Set(key.clone(), val.clone()))?;
+        self.writer.flush()?;
+        self.index.insert(key, CommandIndex { pos });
+        Ok(())
     }
 
     /// Removes a key.
@@ -123,19 +134,19 @@ impl KvStore {
             return Err(Error::new(ErrorKind::KeyNotFound));
         }
 
-        self.append_log(Command::Rm(key.clone()))?;
+        bincode::serialize_into(&mut self.writer, &Command::Rm(key.clone()))?;
+        self.writer.flush()?;
         self.index.remove(&key);
         Ok(())
     }
 
     fn build_index(&mut self) -> Result<()> {
-        self.reader.seek(SeekFrom::Start(0))?;
         loop {
-            let cmd_res = bincode::deserialize_from(&mut self.reader);
-            match cmd_res {
+            let pos = self.reader.stream_position()?;
+            match bincode::deserialize_from(&mut self.reader) {
                 Ok(cmd) => match cmd {
-                    Command::Set(key, val) => {
-                        self.index.insert(key, val);
+                    Command::Set(key, _) => {
+                        self.index.insert(key, CommandIndex { pos });
                     }
                     Command::Rm(key) => {
                         self.index.remove(&key);
@@ -153,23 +164,15 @@ impl KvStore {
         }
         Ok(())
     }
-
-    fn append_log(&mut self, command: Command) -> Result<()> {
-        self.writer.seek(SeekFrom::End(0))?;
-        bincode::serialize_into(&mut self.writer, &command)?;
-
-        // TODO: only flush when needed
-        self.writer.flush()?;
-
-        Ok(())
-    }
 }
 
-/// Data structure for possible operations on the key-value store.
 #[derive(Debug, Serialize, Deserialize)]
-pub enum Command {
-    /// On-disk representation of a set command.
+enum Command {
     Set(String, String),
-    /// On-disk representation of a remove command.
     Rm(String),
+}
+
+#[derive(Debug)]
+struct CommandIndex {
+    pos: u64,
 }
