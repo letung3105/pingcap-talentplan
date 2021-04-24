@@ -69,11 +69,13 @@ impl KvStore {
         let writer = BufWriter::new(wlog);
         let reader = BufReader::new(rlog);
 
-        Ok(Self {
+        let mut kvs = Self {
             index,
             writer,
             reader,
-        })
+        };
+        kvs.build_index()?;
+        Ok(kvs)
     }
 
     /// Set a value to a key.
@@ -86,7 +88,9 @@ impl KvStore {
             When setting a value a key, a `Set` command is written to disk in a sequential log,
             then the log pointer (file offset) is stored in an in-memory index from key to pointer.
         */
-        self.append_log(KvStoreCommand::Set(key, value))
+        self.append_log(Command::Set(key.clone(), value.clone()))?;
+        self.index.insert(key, value);
+        Ok(())
     }
 
     /// Returns the value of a key, if the key exists. Otherwise, returns `None`.
@@ -100,7 +104,6 @@ impl KvStore {
             found an index, loads the command from the log at the corresponding log pointer,
             evaluates the command, and returns the result.
         */
-        self.build_index()?;
         Ok(self.index.get(&key).cloned())
     }
 
@@ -116,11 +119,13 @@ impl KvStore {
             a `Remove` command is written to disk a in sequential log, and the key is removed from
             the in-memory index.
         */
-        self.build_index()?;
         if !self.index.contains_key(&key) {
             return Err(Error::new(ErrorKind::KeyNotFound));
         }
-        self.append_log(KvStoreCommand::Rm(key))
+
+        self.append_log(Command::Rm(key.clone()))?;
+        self.index.remove(&key);
+        Ok(())
     }
 
     fn build_index(&mut self) -> Result<()> {
@@ -129,10 +134,10 @@ impl KvStore {
             let cmd_res = bincode::deserialize_from(&mut self.reader);
             match cmd_res {
                 Ok(cmd) => match cmd {
-                    KvStoreCommand::Set(key, val) => {
+                    Command::Set(key, val) => {
                         self.index.insert(key, val);
                     }
-                    KvStoreCommand::Rm(key) => {
+                    Command::Rm(key) => {
                         self.index.remove(&key);
                     }
                     _ => {}
@@ -150,7 +155,7 @@ impl KvStore {
         Ok(())
     }
 
-    fn append_log(&mut self, command: KvStoreCommand) -> Result<()> {
+    fn append_log(&mut self, command: Command) -> Result<()> {
         self.writer.seek(SeekFrom::End(0))?;
         bincode::serialize_into(&mut self.writer, &command)?;
 
@@ -163,7 +168,7 @@ impl KvStore {
 
 /// Data structure for possible operations on the key-value store.
 #[derive(Debug, Serialize, Deserialize)]
-pub enum KvStoreCommand {
+pub enum Command {
     /// On-disk representation of a set command.
     Set(String, String),
     /// On-disk representation of a get command.
