@@ -9,7 +9,9 @@ fn main() {
 }
 
 fn run() -> kvs::Result<()> {
-    let mut kvs = KvStore::open("./")?;
+    let kvs_dir = std::env::current_dir()?;
+    let mut kvs = KvStore::open(kvs_dir)?;
+
     match KvStoreOpt::from_args().sub_command {
         KvStoreSubCommand::Set { key, value } => {
             kvs.set(key, value)?;
@@ -22,38 +24,29 @@ fn run() -> kvs::Result<()> {
             kvs.remove(key)?;
         }
     }
+
     Ok(())
 }
 
 #[derive(Debug, StructOpt)]
-pub struct KvStoreOpt {
+struct KvStoreOpt {
     #[structopt(subcommand)]
-    pub sub_command: KvStoreSubCommand,
+    sub_command: KvStoreSubCommand,
 }
 
 #[derive(Debug, StructOpt)]
-pub enum KvStoreSubCommand {
-    /// Set the value at the given key, if a value already exists at the given key,
-    /// it is updated
+enum KvStoreSubCommand {
     Set {
-        /// Value of the key
         #[structopt(name = "KEY")]
         key: String,
-        /// The value to be set
         #[structopt(name = "VALUE")]
         value: String,
     },
-
-    /// Get the value at the given key
     Get {
-        /// Value of the key
         #[structopt(name = "KEY")]
         key: String,
     },
-
-    /// Remove the value at the given key
     Rm {
-        /// Value of the key
         #[structopt(name = "KEY")]
         key: String,
     },

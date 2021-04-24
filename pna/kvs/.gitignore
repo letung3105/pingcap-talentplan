@@ -1,2 +1,3 @@
 /target
-dbfiles
+/dbfiles
+*/**/db.log

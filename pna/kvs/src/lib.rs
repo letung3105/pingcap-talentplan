@@ -4,12 +4,10 @@
 #![deny(missing_docs, missing_debug_implementations)]
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::{Seek, SeekFrom};
+use std::io::{BufReader, BufWriter, Seek, SeekFrom};
 use std::path::Path;
-
-const DEFAULT_ACTIVE_LOG_NAME: &str = "db.log";
+use std::{collections::HashMap, io::Write};
 
 /// A short-hand for `std::result::Result<T, KvStoreError>`.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -27,67 +25,31 @@ pub type Error = KvStoreError;
 /// use tempfile::TempDir;
 ///
 /// fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let temp_dir = TempDir::new().expect("unable to create temporary working directory");
+/// let kvs_dir = std::env::current_dir()?;
+/// let mut kvs = KvStore::open(kvs_dir)?;
 ///
-///     // populating key-value store
-///     {
-///         let mut kvs = KvStore::open(temp_dir.path())?;
-///         kvs.set("key01".to_string(), "val01".to_string())?;
-///         kvs.set("key02".to_string(), "val02".to_string())?;
-///     }
+/// kvs.set("key".to_string(), "val".to_string())?;
+/// let val = kvs.get("key".to_string())?;
+/// assert_eq!(val, Some("val".to_string()));
 ///
-///     // accessing entries
-///     {
-///         let mut kvs = KvStore::open(temp_dir.path())?;
+/// kvs.set("key".to_string(),"val-dirty".to_string())?;
+/// let val = kvs.get("key".to_string())?;
+/// assert_eq!(val, Some("val-dirty".to_string()));
 ///
-///         assert_eq!(
-///             Some("val01".to_string()),
-///             kvs.get("key01".to_string())?,
-///         );
-///         assert_eq!(
-///             Some("val02".to_string()),
-///             kvs.get("key02".to_string())?,
-///         );
-///         assert_eq!(
-///             None,
-///             kvs.get("key03".to_string())?,
-///         );
-///     }
+/// kvs.remove("key".to_string())?;
+/// assert_eq!(None, kvs.get("key".to_string())?);
+/// if let Ok(_) = kvs.remove("key".to_string()) {
+///     assert!(false);
+/// }
 ///
-///     // change entry' value
-///     {
-///         let mut kvs = KvStore::open(temp_dir.path())?;
-///         kvs.set(
-///             "key02".to_string(),
-///             "val02-dirty".to_string(),
-///         )?;
-///
-///         assert_eq!(
-///             Some("val02-dirty".to_string()),
-///             kvs.get("key02".to_string())?,
-///         );
-///     }
-///
-///     // remove entry
-///     {
-///         let mut kvs = KvStore::open(temp_dir.path())?;
-///         kvs.remove("key02".to_string())?;
-///         assert_eq!(
-///             None,
-///             kvs.get("key02".to_string())?,
-///         );
-///         if let Ok(_) = kvs.remove("key03".to_string()) {
-///             assert!(false);
-///         }
-///     }
-///
-///     Ok(())
+/// Ok(())
 /// }
 /// ```
 #[derive(Debug)]
 pub struct KvStore {
     index: HashMap<String, String>,
-    log: File,
+    writer: BufWriter<File>,
+    reader: BufReader<File>,
 }
 
 impl KvStore {
@@ -96,56 +58,51 @@ impl KvStore {
     where
         P: AsRef<Path>,
     {
-        let index = HashMap::default();
-        let log = OpenOptions::new()
+        static DEFAULT_ACTIVE_LOG_NAME: &str = "db.log";
+        let log_path = path.as_ref().join(DEFAULT_ACTIVE_LOG_NAME);
+
+        let wlog = OpenOptions::new()
             .create(true)
-            .read(true)
             .append(true)
-            .open(path.as_ref().join(DEFAULT_ACTIVE_LOG_NAME))?;
-        Ok(Self { index, log })
+            .open(&log_path)?;
+        let rlog = OpenOptions::new().read(true).open(&log_path)?;
+
+        let index = HashMap::default();
+        let writer = BufWriter::new(wlog);
+        let reader = BufReader::new(rlog);
+
+        Ok(Self {
+            index,
+            writer,
+            reader,
+        })
     }
 
     /// Set the given key to a value. An error is returned if the value is not written successfully.
     ///
-    /// # Behavior
-    ///
-    /// When setting a value a key, a `Set` command is written to disk in a sequential log,
-    /// then the log pointer (file offset) is stored in an in-memory index from key to pointer.
-    /// The following steps will be taken:
-    ///
-    /// 1. Use a data structure to represent the command
-    /// 2. Serialize the command
-    /// 3. Append the serialized command to the file containing the log
-    ///
     /// # Error
     ///
-    /// + Errors of kind `bincode::Error` will be returned if the command can not be serialized
-    /// + Errors of kind `std::io::Error` will be returned if error occurs while appending data
-    ///   to the log
+    /// Error from I/O operations and serialization/deserialization operations will be propagated
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
+        /*
+            When setting a value a key, a `Set` command is written to disk in a sequential log,
+            then the log pointer (file offset) is stored in an in-memory index from key to pointer.
+        */
         self.append_log(KvStoreCommand::Set(key, value))
     }
 
-    /// Get the value of the given key. If the key does not exist, return `None`. An error is 
+    /// Get the value of the given key. If the key does not exist, return `None`. An error is
     /// returned if the key is not read successfully.
-    ///
-    /// # Behavior
-    ///
-    /// When retrieving a value for a key, the store searches for the key in the index. If
-    /// found an index, loads the command from the log at the corresponding log pointer,
-    /// evaluates the command, and returns the result. The following steps will be taken:
-    ///
-    /// 1. Rebuilds the index
-    /// 2. Checks if the key exists in the index
-    /// 3. 2 cases:
-    ///     + Key not exists: Returns `None`
-    ///     + Key exists: Returns the value
     ///
     /// # Error
     ///
-    /// + Errors of kind `std::io::Error` will be returned if error occurs while loading commands
-    ///   from the log
+    /// Error from I/O operations will be propagated
     pub fn get(&mut self, key: String) -> Result<Option<String>> {
+        /*
+            When retrieving a value for a key, the store searches for the key in the index. If
+            found an index, loads the command from the log at the corresponding log pointer,
+            evaluates the command, and returns the result.
+        */
         self.build_index()?;
         Ok(self.index.get(&key).cloned())
     }
@@ -153,24 +110,16 @@ impl KvStore {
     /// Remove the given key. An error is returned if the key does not exist or if it is not
     /// removed successfully.
     ///
-    /// # Behavior
-    ///
-    /// When removing a key, the store searches for the key in the index. If an index is found,
-    /// a `Remove` command is written to disk a in sequential log, and the key is removed from
-    /// the in-memory index. The following steps will be taken
-    ///
-    /// 1. Rebuilds the index
-    /// 2. Checks if the key exists in the index
-    /// 3. 2 cases:
-    ///     + Key not exists: Return `KeyNotFound` error
-    ///     + Key exists: Write a remove command to the log
-    ///
     /// # Error
     ///
-    /// + Errors of kind `std::io::Error` will be returned if an error occurs while storing/loading
-    ///   commands from the log
-    /// + Errors of kind `KvStoreError::KeyNotFound` will be returned if the key does not exist
+    /// Error from I/O operations will be propagated. If the key doesn't exist returns a
+    /// `KeyNotFound` error
     pub fn remove(&mut self, key: String) -> Result<()> {
+        /*
+            When removing a key, the store searches for the key in the index. If an index is found,
+            a `Remove` command is written to disk a in sequential log, and the key is removed from
+            the in-memory index.
+        */
         self.build_index()?;
         if !self.index.contains_key(&key) {
             return Err(KvStoreError::KeyNotFound);
@@ -179,11 +128,11 @@ impl KvStore {
     }
 
     fn build_index(&mut self) -> Result<()> {
-        let file_size = self.log.metadata()?.len();
+        let file_size = self.reader.get_ref().metadata()?.len();
 
-        self.log.seek(SeekFrom::Start(0))?;
-        while self.log.stream_position()? < file_size {
-            let cmd: KvStoreCommand = bincode::deserialize_from(&mut self.log)?;
+        self.reader.seek(SeekFrom::Start(0))?;
+        while self.reader.stream_position()? < file_size {
+            let cmd: KvStoreCommand = bincode::deserialize_from(&mut self.reader)?;
             match cmd {
                 KvStoreCommand::Set(key, val) => {
                     self.index.insert(key, val);
@@ -199,8 +148,9 @@ impl KvStore {
     }
 
     fn append_log(&mut self, command: KvStoreCommand) -> Result<()> {
-        self.log.seek(SeekFrom::End(0))?;
-        bincode::serialize_into(&mut self.log, &command)?;
+        bincode::serialize_into(&mut self.writer, &command)?;
+        // TODO: only flush when needed
+        self.writer.flush()?;
         Ok(())
     }
 }
@@ -221,14 +171,14 @@ pub enum KvStoreCommand {
 /// Error type for operations on the key-value store.
 #[derive(Debug)]
 pub enum KvStoreError {
+    /// Error when performing operations on non-existent key
+    KeyNotFound,
+
     /// Error from I/O operations
     IoError(std::io::Error),
 
     /// Error from serialization/deserialization operations
     Bincode(bincode::Error),
-
-    /// Error when performing operations on non-existent key
-    KeyNotFound,
 }
 
 impl std::error::Error for KvStoreError {}
@@ -236,23 +186,9 @@ impl std::error::Error for KvStoreError {}
 impl std::fmt::Display for KvStoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::IoError(err) => {
-                write!(
-                    f,
-                    "Error encountered while performing I/O operations - {}",
-                    err
-                )
-            }
-            Self::Bincode(err) => {
-                write!(
-                    f,
-                    "Error encountered while serializing/deserializing data - {}",
-                    err
-                )
-            }
-            Self::KeyNotFound => {
-                write!(f, "Key not found")
-            }
+            Self::KeyNotFound => write!(f, "Key not found"),
+            Self::IoError(err) => write!(f, "I/O error {}", err),
+            Self::Bincode(err) => write!(f, "Serialize/Deserialize error {}", err),
         }
     }
 }
