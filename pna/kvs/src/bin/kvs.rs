@@ -8,7 +8,7 @@ fn main() {
     }
 }
 
-fn run() -> kvs::Result<()> {
+fn run() -> kvs::error::Result<()> {
     let kvs_dir = std::env::current_dir()?;
     let mut kvs = KvStore::open(kvs_dir)?;
 
@@ -18,7 +18,7 @@ fn run() -> kvs::Result<()> {
         }
         KvStoreSubCommand::Get { key } => match kvs.get(key)? {
             Some(value) => println!("{}", value),
-            None => println!("{}", kvs::KvStoreError::KeyNotFound),
+            None => println!("{}", kvs::Error::new(kvs::ErrorKind::KeyNotFound)),
         },
         KvStoreSubCommand::Rm { key } => {
             kvs.remove(key)?;

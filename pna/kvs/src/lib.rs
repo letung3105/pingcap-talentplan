@@ -3,46 +3,44 @@
 
 #![deny(missing_docs, missing_debug_implementations)]
 
+pub mod error;
+pub use error::{Error, ErrorKind, Result};
+
 use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Seek, SeekFrom};
 use std::path::Path;
 use std::{collections::HashMap, io::Write};
 
-/// A short-hand for `std::result::Result<T, KvStoreError>`.
-pub type Result<T> = std::result::Result<T, Error>;
-/// A short-hand for `kvs::KvStoreError`.
-pub type Error = KvStoreError;
-
 /// A simple key-value that has supports for inserting, updating, accessing, and removing entries.
 /// This implementation holds that key-value inside the main memory that doesn't support data
 /// persistence.
 ///
-/// # Example
+/// # Usages
 ///
-/// ```rust
-/// use kvs::KvStore;
+/// ```
+/// use kvs::{Result, KvStore};
 /// use tempfile::TempDir;
 ///
-/// fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let kvs_dir = std::env::current_dir()?;
-/// let mut kvs = KvStore::open(kvs_dir)?;
+/// fn main() -> Result<()> {
+///     let kvs_dir = std::env::current_dir()?;
+///     let mut kvs = KvStore::open(kvs_dir)?;
 ///
-/// kvs.set("key".to_string(), "val".to_string())?;
-/// let val = kvs.get("key".to_string())?;
-/// assert_eq!(val, Some("val".to_string()));
+///     kvs.set("key".to_string(), "val".to_string())?;
+///     let val = kvs.get("key".to_string())?;
+///     assert_eq!(val, Some("val".to_string()));
 ///
-/// kvs.set("key".to_string(),"val-dirty".to_string())?;
-/// let val = kvs.get("key".to_string())?;
-/// assert_eq!(val, Some("val-dirty".to_string()));
+///     kvs.set("key".to_string(),"val-dirty".to_string())?;
+///     let val = kvs.get("key".to_string())?;
+///     assert_eq!(val, Some("val-dirty".to_string()));
 ///
-/// kvs.remove("key".to_string())?;
-/// assert_eq!(None, kvs.get("key".to_string())?);
-/// if let Ok(_) = kvs.remove("key".to_string()) {
-///     assert!(false);
-/// }
+///     kvs.remove("key".to_string())?;
+///     assert_eq!(None, kvs.get("key".to_string())?);
+///     if let Ok(_) = kvs.remove("key".to_string()) {
+///         assert!(false);
+///     }
 ///
-/// Ok(())
+///     Ok(())
 /// }
 /// ```
 #[derive(Debug)]
@@ -78,11 +76,11 @@ impl KvStore {
         })
     }
 
-    /// Set the given key to a value. An error is returned if the value is not written successfully.
+    /// Set a value to a key.
     ///
     /// # Error
     ///
-    /// Error from I/O operations and serialization/deserialization operations will be propagated
+    /// Error from I/O operations and serialization/deserialization operations will be propagated.
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
         /*
             When setting a value a key, a `Set` command is written to disk in a sequential log,
@@ -91,12 +89,11 @@ impl KvStore {
         self.append_log(KvStoreCommand::Set(key, value))
     }
 
-    /// Get the value of the given key. If the key does not exist, return `None`. An error is
-    /// returned if the key is not read successfully.
+    /// Returns the value of a key, if the key exists. Otherwise, returns `None`.
     ///
     /// # Error
     ///
-    /// Error from I/O operations will be propagated
+    /// Error from I/O operations will be propagated.
     pub fn get(&mut self, key: String) -> Result<Option<String>> {
         /*
             When retrieving a value for a key, the store searches for the key in the index. If
@@ -107,13 +104,12 @@ impl KvStore {
         Ok(self.index.get(&key).cloned())
     }
 
-    /// Remove the given key. An error is returned if the key does not exist or if it is not
-    /// removed successfully.
+    /// Removes a key.
     ///
     /// # Error
     ///
     /// Error from I/O operations will be propagated. If the key doesn't exist returns a
-    /// `KeyNotFound` error
+    /// `KeyNotFound` error.
     pub fn remove(&mut self, key: String) -> Result<()> {
         /*
             When removing a key, the store searches for the key in the index. If an index is found,
@@ -122,12 +118,13 @@ impl KvStore {
         */
         self.build_index()?;
         if !self.index.contains_key(&key) {
-            return Err(KvStoreError::KeyNotFound);
+            return Err(Error::new(ErrorKind::KeyNotFound));
         }
         self.append_log(KvStoreCommand::Rm(key))
     }
 
     fn build_index(&mut self) -> Result<()> {
+        // TODO: check stream's length
         self.reader.seek(SeekFrom::Start(0))?;
         while let Ok(cmd) = bincode::deserialize_from(&mut self.reader) {
             match cmd {
@@ -151,52 +148,13 @@ impl KvStore {
     }
 }
 
-/// Data structure for possible operations on the key-value store
+/// Data structure for possible operations on the key-value store.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum KvStoreCommand {
-    /// On-disk representation of a set command
+    /// On-disk representation of a set command.
     Set(String, String),
-
-    /// On-disk representation of a get command
+    /// On-disk representation of a get command.
     Get(String),
-
-    /// On-disk representation of a remove command
+    /// On-disk representation of a remove command.
     Rm(String),
-}
-
-/// Error type for operations on the key-value store.
-#[derive(Debug)]
-pub enum KvStoreError {
-    /// Error when performing operations on non-existent key
-    KeyNotFound,
-
-    /// Error from I/O operations
-    IoError(std::io::Error),
-
-    /// Error from serialization/deserialization operations
-    Bincode(bincode::Error),
-}
-
-impl std::error::Error for KvStoreError {}
-
-impl std::fmt::Display for KvStoreError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::KeyNotFound => write!(f, "Key not found"),
-            Self::IoError(err) => write!(f, "I/O error {}", err),
-            Self::Bincode(err) => write!(f, "Serialize/Deserialize error {}", err),
-        }
-    }
-}
-
-impl From<std::io::Error> for KvStoreError {
-    fn from(err: std::io::Error) -> Self {
-        Self::IoError(err)
-    }
-}
-
-impl From<bincode::Error> for KvStoreError {
-    fn from(err: bincode::Error) -> Self {
-        Self::Bincode(err)
-    }
 }
