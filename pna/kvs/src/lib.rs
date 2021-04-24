@@ -124,26 +124,39 @@ impl KvStore {
     }
 
     fn build_index(&mut self) -> Result<()> {
-        // TODO: check stream's length
         self.reader.seek(SeekFrom::Start(0))?;
-        while let Ok(cmd) = bincode::deserialize_from(&mut self.reader) {
-            match cmd {
-                KvStoreCommand::Set(key, val) => {
-                    self.index.insert(key, val);
+        loop {
+            let cmd_res = bincode::deserialize_from(&mut self.reader);
+            match cmd_res {
+                Ok(cmd) => match cmd {
+                    KvStoreCommand::Set(key, val) => {
+                        self.index.insert(key, val);
+                    }
+                    KvStoreCommand::Rm(key) => {
+                        self.index.remove(&key);
+                    }
+                    _ => {}
+                },
+                Err(err) => {
+                    if let bincode::ErrorKind::Io(io_err) = err.as_ref() {
+                        if let std::io::ErrorKind::UnexpectedEof = io_err.kind() {
+                            break;
+                        }
+                    }
+                    return Err(Error::from(err));
                 }
-                KvStoreCommand::Rm(key) => {
-                    self.index.remove(&key);
-                }
-                _ => {}
             }
         }
         Ok(())
     }
 
     fn append_log(&mut self, command: KvStoreCommand) -> Result<()> {
+        self.writer.seek(SeekFrom::End(0))?;
         bincode::serialize_into(&mut self.writer, &command)?;
+
         // TODO: only flush when needed
         self.writer.flush()?;
+
         Ok(())
     }
 }
