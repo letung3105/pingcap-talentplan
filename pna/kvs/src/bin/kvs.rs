@@ -1,4 +1,4 @@
-use kvs::KvStore;
+use kvs::{Error, ErrorKind, KvStore, Result};
 use structopt::StructOpt;
 
 fn main() {
@@ -8,19 +8,19 @@ fn main() {
     }
 }
 
-fn run() -> kvs::error::Result<()> {
-    let kvs_dir = std::env::current_dir()?;
-    let mut kvs = KvStore::open(kvs_dir)?;
+fn run() -> Result<()> {
+    let dir = std::env::current_dir()?;
+    let mut kvs = KvStore::open(dir)?;
 
-    match KvStoreOpt::from_args().sub_command {
-        KvStoreSubCommand::Set { key, value } => {
-            kvs.set(key, value)?;
+    match CliOpt::from_args().sub_cmd {
+        CliSubCommand::Set { key, val } => {
+            kvs.set(key, val)?;
         }
-        KvStoreSubCommand::Get { key } => match kvs.get(key)? {
-            Some(value) => println!("{}", value),
-            None => println!("{}", kvs::Error::new(kvs::ErrorKind::KeyNotFound)),
+        CliSubCommand::Get { key } => match kvs.get(key)? {
+            Some(val) => println!("{}", val),
+            None => println!("{}", Error::new(ErrorKind::KeyNotFound)),
         },
-        KvStoreSubCommand::Rm { key } => {
+        CliSubCommand::Rm { key } => {
             kvs.remove(key)?;
         }
     }
@@ -29,18 +29,18 @@ fn run() -> kvs::error::Result<()> {
 }
 
 #[derive(Debug, StructOpt)]
-struct KvStoreOpt {
+struct CliOpt {
     #[structopt(subcommand)]
-    sub_command: KvStoreSubCommand,
+    sub_cmd: CliSubCommand,
 }
 
 #[derive(Debug, StructOpt)]
-enum KvStoreSubCommand {
+enum CliSubCommand {
     Set {
         #[structopt(name = "KEY")]
         key: String,
         #[structopt(name = "VALUE")]
-        value: String,
+        val: String,
     },
     Get {
         #[structopt(name = "KEY")]
