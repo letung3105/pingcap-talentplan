@@ -140,7 +140,6 @@ impl KvStore {
                     Command::Rm(key) => {
                         self.index.remove(&key);
                     }
-                    _ => {}
                 },
                 Err(err) => {
                     if let bincode::ErrorKind::Io(io_err) = err.as_ref() {
@@ -171,8 +170,6 @@ impl KvStore {
 pub enum Command {
     /// On-disk representation of a set command.
     Set(String, String),
-    /// On-disk representation of a get command.
-    Get(String),
     /// On-disk representation of a remove command.
     Rm(String),
 }
