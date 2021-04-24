@@ -128,11 +128,8 @@ impl KvStore {
     }
 
     fn build_index(&mut self) -> Result<()> {
-        let file_size = self.reader.get_ref().metadata()?.len();
-
         self.reader.seek(SeekFrom::Start(0))?;
-        while self.reader.stream_position()? < file_size {
-            let cmd: KvStoreCommand = bincode::deserialize_from(&mut self.reader)?;
+        while let Ok(cmd) = bincode::deserialize_from(&mut self.reader) {
             match cmd {
                 KvStoreCommand::Set(key, val) => {
                     self.index.insert(key, val);
@@ -143,7 +140,6 @@ impl KvStore {
                 _ => {}
             }
         }
-
         Ok(())
     }
 
