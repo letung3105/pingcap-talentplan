@@ -16,6 +16,9 @@ use std::{collections::HashMap, io::Write};
 /// This implementation holds that key-value inside the main memory that doesn't support data
 /// persistence.
 ///
+/// Serialization/Deserialization is done using the `bincode` crate. The crate is chosen mainly
+/// because of its performance.
+///
 /// # Usages
 ///
 /// ```
@@ -56,6 +59,7 @@ impl KvStore {
     where
         P: AsRef<Path>,
     {
+        // TODO: Create a log file with an updated id.
         static DEFAULT_ACTIVE_LOG_NAME: &str = "db.log";
         let log_path = path.as_ref().join(DEFAULT_ACTIVE_LOG_NAME);
 
