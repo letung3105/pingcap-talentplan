@@ -9,10 +9,12 @@ fn main() {
 }
 
 fn run() -> Result<()> {
+    let opt = CliOpt::from_args();
+
     let dir = std::env::current_dir()?;
     let mut kvs = KvStore::open(dir)?;
 
-    match CliOpt::from_args().sub_cmd {
+    match opt.sub_cmd {
         CliSubCommand::Set { key, val } => {
             kvs.set(key, val)?;
         }
