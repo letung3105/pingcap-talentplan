@@ -29,8 +29,8 @@ const GARBAGE_THRESHOLD: u64 = 4 * 1024 * 1024;
 /// use tempfile::TempDir;
 ///
 /// fn main() -> Result<()> {
-///     let kvs_dir = std::env::current_dir()?;
-///     let mut kvs = KvStore::open(kvs_dir)?;
+///     let temp_dir = TempDir::new().expect("unable to create temporary working directory");
+///     let mut kvs = KvStore::open(temp_dir.path())?;
 ///
 ///     kvs.set("key".to_string(), "val".to_string())?;
 ///     let val = kvs.get("key".to_string())?;
@@ -51,12 +51,12 @@ const GARBAGE_THRESHOLD: u64 = 4 * 1024 * 1024;
 /// ```
 #[derive(Debug)]
 pub struct KvStore {
-    path: PathBuf,
-    epoch: u64,
+    active_path: PathBuf,
+    active_epoch: u64,
     garbage: u64,
-    index: HashMap<String, CommandIndex>,
     writer: BufWriter<File>,
     readers: HashMap<u64, BufReader<File>>,
+    index_map: HashMap<String, CommandIndex>,
 }
 
 impl KvStore {
@@ -65,33 +65,33 @@ impl KvStore {
     where
         P: Into<PathBuf>,
     {
-        let path = path.into();
-        let epochs = Self::previous_epochs(&path)?;
-        let epoch = epochs.last().map(|e| *e + 1).unwrap_or_default();
+        let active_path = path.into();
+        let prev_epochs = Self::previous_epochs(&active_path)?;
+        let active_epoch = prev_epochs.last().map(|&e| e + 1).unwrap_or_default();
 
         // go through all log files and rebuild the index
         let mut garbage = 0;
-        let mut index = HashMap::default();
-        let mut readers = HashMap::default();
-        for epoch in epochs {
-            let log_path = path.join(format!("epoch-{}.log", epoch));
-            let rlog = OpenOptions::new().read(true).open(&log_path)?;
-            let mut reader = BufReader::new(rlog);
+        let mut readers = HashMap::new();
+        let mut index_map = HashMap::new();
+        for prev_epoch in prev_epochs {
+            let prev_log_path = active_path.join(format!("epoch-{}.log", prev_epoch));
+            let prev_log = OpenOptions::new().read(true).open(&prev_log_path)?;
+            let mut reader = BufReader::new(prev_log);
 
-            garbage += Self::build_index(&mut reader, &mut index, epoch)?;
-            readers.insert(epoch, reader);
+            garbage += Self::build_index(&mut reader, &mut index_map, prev_epoch)?;
+            readers.insert(prev_epoch, reader);
         }
         // create a new log file for this instance
-        let (writer, reader) = Self::create_log(&path, epoch)?;
-        readers.insert(epoch, reader);
+        let (writer, reader) = Self::create_log(&active_path, active_epoch)?;
+        readers.insert(active_epoch, reader);
 
         Ok(Self {
-            path,
-            epoch,
+            active_path,
+            active_epoch,
             garbage,
-            index,
             writer,
             readers,
+            index_map,
         })
     }
 
@@ -106,16 +106,16 @@ impl KvStore {
             found an index, loads the command from the log at the corresponding log pointer,
             evaluates the command, and returns the result.
         */
-        match self.index.get(&key) {
-            Some(cmd_idx) => match self.readers.get_mut(&cmd_idx.epoch) {
+        match self.index_map.get(&key) {
+            Some(index) => match self.readers.get_mut(&index.epoch) {
                 Some(reader) => {
-                    reader.seek(SeekFrom::Start(cmd_idx.offset))?;
+                    reader.seek(SeekFrom::Start(index.offset))?;
                     match bincode::deserialize_from(reader)? {
-                        Command::Set(_, val) => Ok(Some(val)),
+                        Command::Set(_, value) => Ok(Some(value)),
                         _ => Err(Error::new(ErrorKind::InvalidCommand)),
                     }
                 }
-                None => Err(Error::new(ErrorKind::InvalidReaderEpoch)),
+                None => Err(Error::new(ErrorKind::InvalidLogEpoch)),
             },
             None => Ok(None),
         }
@@ -131,23 +131,23 @@ impl KvStore {
             When setting a value a key, a `Set` command is written to disk in a sequential log,
             then the log pointer (file offset) is stored in an in-memory index from key to pointer.
         */
-        let epoch = self.epoch;
-        let offset = self.writer.stream_position()?;
-        bincode::serialize_into(&mut self.writer, &Command::Set(key.clone(), val))?;
+        let active_offset = self.writer.stream_position()?;
+        let command = Command::Set(key.clone(), val);
+        bincode::serialize_into(&mut self.writer, &command)?;
         self.writer.flush()?;
-        let length = self.writer.stream_position()? - offset;
 
-        let cmd_idx = CommandIndex {
-            epoch,
-            offset,
-            length,
+        let index = CommandIndex {
+            epoch: self.active_epoch,
+            offset: active_offset,
+            length: self.writer.stream_position()? - active_offset,
         };
-        if let Some(prev_cmd_idx) = self.index.insert(key, cmd_idx) {
-            self.garbage += prev_cmd_idx.length;
+        if let Some(prev_index) = self.index_map.insert(key, index) {
+            self.garbage += prev_index.length;
             if self.garbage > GARBAGE_THRESHOLD {
                 self.merge()?;
             }
         };
+
         Ok(())
     }
 
@@ -163,14 +163,16 @@ impl KvStore {
             a `Remove` command is written to disk a in sequential log, and the key is removed from
             the in-memory index.
         */
-        if !self.index.contains_key(&key) {
+        if !self.index_map.contains_key(&key) {
             return Err(Error::new(ErrorKind::KeyNotFound));
         }
-        let cmd = Command::Rm(key.clone());
-        bincode::serialize_into(&mut self.writer, &cmd)?;
+
+        let command = Command::Rm(key.clone());
+        bincode::serialize_into(&mut self.writer, &command)?;
         self.writer.flush()?;
-        if let Some(prev_cmd_idx) = self.index.remove(&key) {
-            self.garbage += prev_cmd_idx.length;
+
+        if let Some(prev_index) = self.index_map.remove(&key) {
+            self.garbage += prev_index.length;
             if self.garbage > GARBAGE_THRESHOLD {
                 self.merge()?;
             }
@@ -179,40 +181,47 @@ impl KvStore {
     }
 
     fn merge(&mut self) -> Result<()> {
-        let mut stale_epochs: Vec<u64> = self.readers.keys().cloned().collect();
-        stale_epochs.sort();
+        // create 2 new log: one for the merged entries and one for the new active log
+        let merged_epoch = self.active_epoch + 1;
+        self.active_epoch += 2;
 
-        let merge_epoch = stale_epochs.last().map(|e| *e + 1).unwrap_or_default();
-        let epoch = merge_epoch + 1;
-
-        let (writer, reader) = Self::create_log(&self.path, epoch)?;
+        let (writer, reader) = Self::create_log(&self.active_path, self.active_epoch)?;
         self.writer = writer;
-        self.readers.insert(epoch, reader);
-        self.epoch = epoch;
+        self.readers.insert(self.active_epoch, reader);
 
-        let (mut merge_writer, merge_reader) = Self::create_log(&self.path, merge_epoch)?;
-        self.readers.insert(merge_epoch, merge_reader);
+        let (mut merged_writer, merged_reader) = Self::create_log(&self.active_path, merged_epoch)?;
+        self.readers.insert(merged_epoch, merged_reader);
 
-        for cmd_idx in self.index.values_mut() {
-            match self.readers.get_mut(&cmd_idx.epoch) {
+        // copy data from old log files to the merged log file and update the in-memory index map
+        for index in self.index_map.values_mut() {
+            match self.readers.get_mut(&index.epoch) {
                 Some(reader) => {
-                    reader.seek(SeekFrom::Start(cmd_idx.offset))?;
-                    let mut entry_reader = reader.take(cmd_idx.length);
-                    let merge_offset = merge_writer.stream_position()?;
-                    std::io::copy(&mut entry_reader, &mut merge_writer)?;
-                    *cmd_idx = CommandIndex {
-                        epoch: merge_epoch,
-                        offset: merge_offset,
-                        length: cmd_idx.length,
+                    reader.seek(SeekFrom::Start(index.offset))?;
+                    let mut entry_reader = reader.take(index.length);
+
+                    let merged_offset = merged_writer.stream_position()?;
+                    std::io::copy(&mut entry_reader, &mut merged_writer)?;
+
+                    *index = CommandIndex {
+                        epoch: merged_epoch,
+                        offset: merged_offset,
+                        length: index.length,
                     };
                 }
-                None => return Err(Error::new(ErrorKind::InvalidReaderEpoch)),
+                None => return Err(Error::new(ErrorKind::InvalidLogEpoch)),
             }
         }
-        merge_writer.flush()?;
+        merged_writer.flush()?;
 
+        // remove stale log files
+        let stale_epochs: Vec<u64> = self
+            .readers
+            .keys()
+            .filter(|&&epoch| epoch < merged_epoch)
+            .cloned()
+            .collect();
         for epoch in stale_epochs {
-            let log_path = self.path.join(format!("epoch-{}.log", epoch));
+            let log_path = self.active_path.join(format!("epoch-{}.log", epoch));
             std::fs::remove_file(log_path)?;
             self.readers.remove(&epoch);
         }
@@ -232,11 +241,10 @@ impl KvStore {
             match bincode::deserialize_from(reader.by_ref()) {
                 Ok(cmd) => match cmd {
                     Command::Set(key, _) => {
-                        let length = reader.stream_position()? - offset;
                         let cmd_idx = CommandIndex {
                             epoch,
                             offset,
-                            length,
+                            length: reader.stream_position()? - offset,
                         };
                         if let Some(prev_cmd_idx) = index.insert(key, cmd_idx) {
                             garbage += prev_cmd_idx.length;
@@ -266,13 +274,13 @@ impl KvStore {
     {
         let path = path.into();
         let log_path = path.join(format!("epoch-{}.log", epoch));
-        let wlog = OpenOptions::new()
+        let writable_log = OpenOptions::new()
             .create_new(true)
             .append(true)
             .open(&log_path)?;
-        let rlog = OpenOptions::new().read(true).open(&log_path)?;
-        let writer = BufWriter::new(wlog);
-        let reader = BufReader::new(rlog);
+        let readable_log = OpenOptions::new().read(true).open(&log_path)?;
+        let writer = BufWriter::new(writable_log);
+        let reader = BufReader::new(readable_log);
         Ok((writer, reader))
     }
 
