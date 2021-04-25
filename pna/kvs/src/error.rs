@@ -13,7 +13,7 @@ impl std::fmt::Display for Error {
         match self.as_ref() {
             ErrorKind::KeyNotFound => write!(f, "Key not found"),
             ErrorKind::InvalidCommand => write!(f, "Invalid command"),
-            ErrorKind::InvalidReaderEpoch => write!(f, "Invalid reader epoch"),
+            ErrorKind::InvalidLogEpoch => write!(f, "Invalid log epoch"),
             ErrorKind::Io(err) => write!(f, "I/O error {}", err),
             ErrorKind::Bincode(err) => write!(f, "Serialize/Deserialize error {}", err),
         }
@@ -40,7 +40,7 @@ pub enum ErrorKind {
     /// Error occurs when encounter a command type that is not supposed to be there
     InvalidCommand,
     /// Error occurs when a reader does not exist for some epoch
-    InvalidReaderEpoch,
+    InvalidLogEpoch,
     /// Error propagated from I/O operations.
     Io(std::io::Error),
     /// Error propagated from serialization/deserialization operations.
