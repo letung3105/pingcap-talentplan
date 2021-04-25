@@ -99,17 +99,19 @@ impl KvStore {
             found an index, loads the command from the log at the corresponding log pointer,
             evaluates the command, and returns the result.
         */
-        if let Some(CommandIndex { epoch, offset }) = self.index.get(&key) {
-            if let Some(reader) = self.readers.get_mut(epoch) {
-                reader.seek(SeekFrom::Start(*offset))?;
-                if let Command::Set(_, val) = bincode::deserialize_from(reader)? {
-                    return Ok(Some(val));
-                } else {
-                    return Err(Error::new(ErrorKind::InvalidCommand));
+        match self.index.get(&key) {
+            Some(CommandIndex { epoch, offset }) => match self.readers.get_mut(epoch) {
+                Some(reader) => {
+                    reader.seek(SeekFrom::Start(*offset))?;
+                    match bincode::deserialize_from(reader)? {
+                        Command::Set(_, val) => Ok(Some(val)),
+                        _ => Err(Error::new(ErrorKind::InvalidCommand)),
+                    }
                 }
-            }
+                None => Err(Error::new(ErrorKind::InvalidReaderEpoch)),
+            },
+            None => Ok(None),
         }
-        Ok(None)
     }
 
     /// Set a value to a key.
@@ -160,26 +162,23 @@ impl KvStore {
         reader.seek(SeekFrom::Start(0))?;
         loop {
             let offset = reader.stream_position()?;
-            match bincode::deserialize_from(reader.by_ref()) {
-                Ok(cmd) => match cmd {
+            bincode::deserialize_from(reader.by_ref())
+                .map(|cmd| match cmd {
                     Command::Set(key, _) => {
                         index.insert(key, CommandIndex { epoch, offset });
                     }
                     Command::Rm(key) => {
                         index.remove(&key);
                     }
-                },
-                Err(err) => {
-                    if let bincode::ErrorKind::Io(io_err) = err.as_ref() {
-                        if let std::io::ErrorKind::UnexpectedEof = io_err.kind() {
-                            break;
-                        }
-                    }
-                    return Err(Error::from(err));
-                }
-            }
+                })
+                .or_else(|err| match err.as_ref() {
+                    bincode::ErrorKind::Io(io_err) => match io_err.kind() {
+                        std::io::ErrorKind::UnexpectedEof => Ok(()),
+                        _ => Err(Error::from(err)),
+                    },
+                    _ => Err(Error::from(err)),
+                })?;
         }
-        Ok(())
     }
 
     fn new_log<P>(path: P, epoch: u64) -> Result<(BufWriter<File>, BufReader<File>)>
