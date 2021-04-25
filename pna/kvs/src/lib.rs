@@ -64,6 +64,7 @@ impl KvStore {
         let epochs = Self::get_previous_epochs(&path)?;
         let epoch_current = epochs.last().map(|e| *e + 1).unwrap_or_default();
 
+        // go through all log files and rebuild the index
         let mut index = HashMap::default();
         let mut readers = HashMap::default();
         for epoch in epochs.clone() {
@@ -74,6 +75,7 @@ impl KvStore {
             Self::build_index(&mut reader, &mut index, epoch)?;
             readers.insert(epoch, reader);
         }
+        // create a new log file for this instance
         let (mut writer, reader) = Self::new_log(&path, epoch_current)?;
         writer.seek(SeekFrom::End(0))?;
         readers.insert(epoch_current, reader);
@@ -102,6 +104,8 @@ impl KvStore {
                 reader.seek(SeekFrom::Start(*offset))?;
                 if let Command::Set(_, val) = bincode::deserialize_from(reader)? {
                     return Ok(Some(val));
+                } else {
+                    return Err(Error::new(ErrorKind::InvalidCommand));
                 }
             }
         }
