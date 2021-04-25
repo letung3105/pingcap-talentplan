@@ -67,7 +67,7 @@ impl KvStore {
         // go through all log files and rebuild the index
         let mut index = HashMap::default();
         let mut readers = HashMap::default();
-        for epoch in epochs.clone() {
+        for epoch in epochs {
             let log_path = path.as_ref().join(format!("epoch-{}.log", epoch));
             let rlog = OpenOptions::new().read(true).open(&log_path)?;
             let mut reader = BufReader::new(rlog);
@@ -124,7 +124,7 @@ impl KvStore {
         */
         let epoch = self.epoch;
         let offset = self.writer.stream_position()?;
-        bincode::serialize_into(&mut self.writer, &Command::Set(key.clone(), val.clone()))?;
+        bincode::serialize_into(&mut self.writer, &Command::Set(key.clone(), val))?;
         self.writer.flush()?;
         self.index.insert(key, CommandIndex { epoch, offset });
         Ok(())
@@ -203,14 +203,8 @@ impl KvStore {
     {
         let mut epochs: Vec<u64> = std::fs::read_dir(path.as_ref())?
             .filter_map(std::result::Result::ok)
-            .filter_map(|e| {
-                let p = e.path();
-                if p.is_file() && p.extension() == Some("log".as_ref()) {
-                    Some(p)
-                } else {
-                    None
-                }
-            })
+            .map(|e| e.path())
+            .filter(|p| p.is_file() && p.extension() == Some("log".as_ref()))
             .filter_map(|p| {
                 p.file_stem()
                     .and_then(OsStr::to_str)
