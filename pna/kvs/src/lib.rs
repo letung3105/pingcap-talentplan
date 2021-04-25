@@ -231,7 +231,7 @@ impl KvStore {
 
     fn build_index(
         reader: &mut BufReader<File>,
-        index: &mut HashMap<String, CommandIndex>,
+        index_map: &mut HashMap<String, CommandIndex>,
         epoch: u64,
     ) -> Result<u64> {
         reader.seek(SeekFrom::Start(0))?;
@@ -239,20 +239,20 @@ impl KvStore {
         loop {
             let offset = reader.stream_position()?;
             match bincode::deserialize_from(reader.by_ref()) {
-                Ok(cmd) => match cmd {
+                Ok(command) => match command {
                     Command::Set(key, _) => {
-                        let cmd_idx = CommandIndex {
+                        let index = CommandIndex {
                             epoch,
                             offset,
                             length: reader.stream_position()? - offset,
                         };
-                        if let Some(prev_cmd_idx) = index.insert(key, cmd_idx) {
-                            garbage += prev_cmd_idx.length;
+                        if let Some(prev_index) = index_map.insert(key, index) {
+                            garbage += prev_index.length;
                         };
                     }
                     Command::Rm(key) => {
-                        if let Some(prev_cmd_idx) = index.remove(&key) {
-                            garbage += prev_cmd_idx.length;
+                        if let Some(prev_index) = index_map.remove(&key) {
+                            garbage += prev_index.length;
                         };
                     }
                 },
