@@ -7,10 +7,11 @@ pub mod error;
 pub use error::{Error, ErrorKind, Result};
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::fs::{File, OpenOptions};
-use std::io::{BufReader, BufWriter, Seek, SeekFrom};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::Path;
-use std::{collections::HashMap, io::Write};
 
 /// A simple key-value that has supports for inserting, updating, accessing, and removing entries.
 /// This implementation holds that key-value inside the main memory that doesn't support data
@@ -48,9 +49,10 @@ use std::{collections::HashMap, io::Write};
 /// ```
 #[derive(Debug)]
 pub struct KvStore {
+    epoch: u64,
     index: HashMap<String, CommandIndex>,
     writer: BufWriter<File>,
-    reader: BufReader<File>,
+    readers: HashMap<u64, BufReader<File>>,
 }
 
 impl KvStore {
@@ -59,30 +61,29 @@ impl KvStore {
     where
         P: AsRef<Path>,
     {
-        // TODO: Create a log file with an updated id.
-        static DEFAULT_ACTIVE_LOG_NAME: &str = "db.log";
-        let log_path = path.as_ref().join(DEFAULT_ACTIVE_LOG_NAME);
+        let epochs = Self::get_previous_epochs(&path)?;
+        let epoch_current = epochs.last().map(|e| *e + 1).unwrap_or_default();
 
-        let wlog = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)?;
-        let rlog = OpenOptions::new().read(true).open(&log_path)?;
+        let mut index = HashMap::default();
+        let mut readers = HashMap::default();
+        for epoch in epochs.clone() {
+            let log_path = path.as_ref().join(format!("epoch-{}.log", epoch));
+            let rlog = OpenOptions::new().read(true).open(&log_path)?;
+            let mut reader = BufReader::new(rlog);
 
-        let index = HashMap::default();
-        let writer = BufWriter::new(wlog);
-        let reader = BufReader::new(rlog);
+            Self::build_index(&mut reader, &mut index, epoch)?;
+            readers.insert(epoch, reader);
+        }
+        let (mut writer, reader) = Self::new_log(&path, epoch_current)?;
+        writer.seek(SeekFrom::End(0))?;
+        readers.insert(epoch_current, reader);
 
-        let mut kvs = Self {
+        Ok(Self {
+            epoch: epoch_current,
             index,
             writer,
-            reader,
-        };
-        kvs.reader.seek(SeekFrom::Start(0))?;
-        kvs.writer.seek(SeekFrom::End(0))?;
-        kvs.build_index()?;
-
-        Ok(kvs)
+            readers,
+        })
     }
 
     /// Returns the value of a key, if the key exists. Otherwise, returns `None`.
@@ -96,10 +97,12 @@ impl KvStore {
             found an index, loads the command from the log at the corresponding log pointer,
             evaluates the command, and returns the result.
         */
-        if let Some(CommandIndex { pos }) = self.index.get(&key) {
-            self.reader.seek(SeekFrom::Start(*pos))?;
-            if let Command::Set(_, val) = bincode::deserialize_from(&mut self.reader)? {
-                return Ok(Some(val));
+        if let Some(CommandIndex { epoch, offset }) = self.index.get(&key) {
+            if let Some(reader) = self.readers.get_mut(epoch) {
+                reader.seek(SeekFrom::Start(*offset))?;
+                if let Command::Set(_, val) = bincode::deserialize_from(reader)? {
+                    return Ok(Some(val));
+                }
             }
         }
         Ok(None)
@@ -115,10 +118,11 @@ impl KvStore {
             When setting a value a key, a `Set` command is written to disk in a sequential log,
             then the log pointer (file offset) is stored in an in-memory index from key to pointer.
         */
-        let pos = self.writer.stream_position()?;
+        let epoch = self.epoch;
+        let offset = self.writer.stream_position()?;
         bincode::serialize_into(&mut self.writer, &Command::Set(key.clone(), val.clone()))?;
         self.writer.flush()?;
-        self.index.insert(key, CommandIndex { pos });
+        self.index.insert(key, CommandIndex { epoch, offset });
         Ok(())
     }
 
@@ -137,23 +141,28 @@ impl KvStore {
         if !self.index.contains_key(&key) {
             return Err(Error::new(ErrorKind::KeyNotFound));
         }
-
-        bincode::serialize_into(&mut self.writer, &Command::Rm(key.clone()))?;
+        let cmd = Command::Rm(key.clone());
+        bincode::serialize_into(&mut self.writer, &cmd)?;
         self.writer.flush()?;
         self.index.remove(&key);
         Ok(())
     }
 
-    fn build_index(&mut self) -> Result<()> {
+    fn build_index(
+        reader: &mut BufReader<File>,
+        index: &mut HashMap<String, CommandIndex>,
+        epoch: u64,
+    ) -> Result<()> {
+        reader.seek(SeekFrom::Start(0))?;
         loop {
-            let pos = self.reader.stream_position()?;
-            match bincode::deserialize_from(&mut self.reader) {
+            let offset = reader.stream_position()?;
+            match bincode::deserialize_from(reader.by_ref()) {
                 Ok(cmd) => match cmd {
                     Command::Set(key, _) => {
-                        self.index.insert(key, CommandIndex { pos });
+                        index.insert(key, CommandIndex { epoch, offset });
                     }
                     Command::Rm(key) => {
-                        self.index.remove(&key);
+                        index.remove(&key);
                     }
                 },
                 Err(err) => {
@@ -168,6 +177,48 @@ impl KvStore {
         }
         Ok(())
     }
+
+    fn new_log<P>(path: P, epoch: u64) -> Result<(BufWriter<File>, BufReader<File>)>
+    where
+        P: AsRef<Path>,
+    {
+        let log_path = path.as_ref().join(format!("epoch-{}.log", epoch));
+        let wlog = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)?;
+        let rlog = OpenOptions::new().read(true).open(&log_path)?;
+        let writer = BufWriter::new(wlog);
+        let reader = BufReader::new(rlog);
+        Ok((writer, reader))
+    }
+
+    fn get_previous_epochs<P>(path: P) -> Result<Vec<u64>>
+    where
+        P: AsRef<Path>,
+    {
+        let mut epochs: Vec<u64> = std::fs::read_dir(path.as_ref())?
+            .filter_map(std::result::Result::ok)
+            .filter_map(|e| {
+                let p = e.path();
+                if p.is_file() && p.extension() == Some("log".as_ref()) {
+                    Some(p)
+                } else {
+                    None
+                }
+            })
+            .filter_map(|p| {
+                p.file_stem()
+                    .and_then(OsStr::to_str)
+                    .filter(|s| s.starts_with("epoch-"))
+                    .map(|s| s.trim_start_matches("epoch-"))
+                    .map(str::parse::<u64>)
+            })
+            .filter_map(std::result::Result::ok)
+            .collect();
+        epochs.sort();
+        Ok(epochs)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -178,5 +229,6 @@ enum Command {
 
 #[derive(Debug)]
 struct CommandIndex {
-    pos: u64,
+    epoch: u64,
+    offset: u64,
 }
