@@ -1,27 +1,28 @@
-use bb03::{BluisClient, TEST_ADDR};
+use bb03::{BluisClient, TEST_ADDR, Result};
 use structopt::StructOpt;
 
-fn main() -> bb03::Result<()> {
-    let opt = BluisOpt::from_args();
-    let client = BluisClient::new(TEST_ADDR)?;
-    match opt.subcommand {
-        BluisSubCommand::Ping { message } => {
-            println!("Command is 'PING {}'", message);
+fn main() -> Result<()> {
+    let opt = BluiscOpt::from_args();
+    let mut client = BluisClient::new(TEST_ADDR)?;
+
+    match opt.sub_command {
+        BluiscSubCommand::Ping { message } => {
             client.ping(message)?;
         }
     }
+
     Ok(())
 }
 
-#[derive(Debug, StructOpt)]
+#[derive(StructOpt)]
 #[structopt()]
-struct BluisOpt {
+struct BluiscOpt {
     #[structopt(subcommand)]
-    subcommand: BluisSubCommand,
+    sub_command: BluiscSubCommand,
 }
 
-#[derive(Debug, StructOpt)]
-enum BluisSubCommand {
+#[derive(StructOpt)]
+enum BluiscSubCommand {
     Ping {
         #[structopt(name = "MESSAGE")]
         message: String,
