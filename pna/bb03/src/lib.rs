@@ -8,6 +8,9 @@ use std::fmt;
 use std::io;
 use std::net;
 
+/// Encoded type termination
+pub const CRLF: [u8; 2] = [b'\r', b'\n'];
+
 /// IP address for testing the client/server on the local machine
 pub const TEST_ADDR: ([u8; 4], u16) = ([127, 0, 0, 1], 8080);
 
@@ -31,7 +34,30 @@ impl BluisClient {
     }
 
     /// Send a `PING` command to the RESP server
-    pub fn ping(&self, _message: String) -> Result<()> {
+    pub fn ping(&self, message: String) -> Result<String> {
+        static PING_COMMAND: &[u8] = b"PING";
+        let mut packet = Vec::new();
+        // array size
+        packet.extend_from_slice(b"*2");
+        packet.extend_from_slice(&CRLF);
+        // command
+        packet.extend_from_slice(b"$");
+        packet.extend_from_slice(PING_COMMAND.len().to_string().as_bytes());
+        packet.extend_from_slice(&CRLF);
+        packet.extend_from_slice(PING_COMMAND);
+        packet.extend_from_slice(&CRLF);
+        // argument(s)
+        packet.extend_from_slice(b"$");
+        packet.extend_from_slice(message.len().to_string().as_bytes());
+        packet.extend_from_slice(&CRLF);
+        packet.extend_from_slice(&message.as_bytes());
+        packet.extend_from_slice(&CRLF);
+
+        println!(
+            "Encoded ping command:\n{}",
+            String::from_utf8_lossy(&packet)
+        );
+
         todo!()
     }
 }
