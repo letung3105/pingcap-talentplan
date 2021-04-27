@@ -3,7 +3,7 @@ use structopt::StructOpt;
 
 fn main() -> Result<()> {
     let opt = BluiscOpt::from_args();
-    let client = BluisClient::new(TEST_ADDR);
+    let mut client = BluisClient::new(TEST_ADDR)?;
 
     match opt.sub_command {
         BluiscSubCommand::Ping { message } => {
