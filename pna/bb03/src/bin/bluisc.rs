@@ -1,9 +1,9 @@
+use bb03::{BluisClient, TEST_ADDR, Result};
 use structopt::StructOpt;
-use bb03::{Result, BluisClient};
 
-fn main() -> bb03::Result<()> {
+fn main() -> Result<()> {
     let opt = BluiscOpt::from_args();
-    let client = BluisClient::new();
+    let client = BluisClient::new(TEST_ADDR);
 
     match opt.sub_command {
         BluiscSubCommand::Ping { message } => {
