@@ -3,7 +3,7 @@
 
 #![deny(missing_docs, missing_debug_implementations)]
 
-use std::error;
+use std::{error, net::SocketAddr};
 use std::fmt;
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::net::{self, TcpStream};
@@ -20,6 +20,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Custom RESP client
 #[derive(Debug)]
 pub struct BluisClient {
+    addr_remote: SocketAddr,
     stream_reader: BufReader<TcpStream>,
     stream_writer: BufWriter<TcpStream>,
 }
@@ -35,6 +36,7 @@ impl BluisClient {
         let stream_reader = BufReader::new(stream.try_clone()?);
         let stream_writer = BufWriter::new(stream.try_clone()?);
         Ok(Self {
+            addr_remote,
             stream_reader,
             stream_writer,
         })
@@ -42,43 +44,32 @@ impl BluisClient {
 
     /// Send a `PING` command to the RESP server
     pub fn ping(&mut self, message: String) -> Result<String> {
-        static PING_COMMAND: &[u8] = b"PING";
-        let mut packet = Vec::new();
-        // array size
-        packet.extend_from_slice(b"*2");
-        packet.extend_from_slice(&CRLF);
-        // command
-        packet.extend_from_slice(b"$");
-        packet.extend_from_slice(PING_COMMAND.len().to_string().as_bytes());
-        packet.extend_from_slice(&CRLF);
-        packet.extend_from_slice(PING_COMMAND);
-        packet.extend_from_slice(&CRLF);
-        // argument(s)
-        packet.extend_from_slice(b"$");
-        packet.extend_from_slice(message.len().to_string().as_bytes());
-        packet.extend_from_slice(&CRLF);
-        packet.extend_from_slice(message.as_bytes());
-        packet.extend_from_slice(&CRLF);
-        // send command
-        self.stream_writer.write_all(&packet)?;
+        let mut stream = TcpStream::connect(self.addr_remote)?;
 
-        let mut reply_size_buf = Vec::new();
+        let mut packet = Vec::new();
+        packet.extend_from_slice(b"*2\r\n$4\r\nPING\r\n");
+        packet.extend_from_slice(format!("${}\r\n", message.len()).as_bytes());
+        packet.extend_from_slice(format!("{}\r\n", message).as_bytes());
+
+        println!("Encoded ping command: {:?}", packet);
+        stream.write_all(&packet)?;
+
+
+        let mut reply_size_buf = vec![];
         self.stream_reader.consume(1);
         self.stream_reader.read_until(b'\r', &mut reply_size_buf)?;
         self.stream_reader.consume(2);
+        let reply_size = String::from_utf8(reply_size_buf).unwrap().parse().unwrap();
+        println!("Reply size: {:?}", reply_size);
 
-        let reply_size = String::from_utf8_lossy(&reply_size_buf).parse().unwrap();
-        let mut reply_buf = Vec::with_capacity(reply_size);
+        let mut reply_buf = vec![0u8; reply_size];
         self.stream_reader.read_exact(&mut reply_buf)?;
+        println!("Reply (bytes): {:?}", reply_buf);
 
-        println!(
-            "Encoded ping command:\n{}",
-            String::from_utf8_lossy(&packet)
-        );
+        let reply_string = String::from_utf8(reply_buf).unwrap();
+        println!("Reply (string): {:?}", reply_string);
 
-        println!("Reply:\n{}", String::from_utf8_lossy(&reply_buf));
-
-        todo!()
+        Ok(reply_string)
     }
 }
 
