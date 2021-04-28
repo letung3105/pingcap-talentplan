@@ -1,4 +1,4 @@
-use bb03::{BluisClient, TEST_ADDR, Result};
+use bb03::{BluisClient, Result, TEST_ADDR};
 use structopt::StructOpt;
 
 fn main() -> Result<()> {
@@ -25,6 +25,6 @@ struct BluiscOpt {
 enum BluiscSubCommand {
     Ping {
         #[structopt(name = "MESSAGE")]
-        message: String,
+        message: Option<String>,
     },
 }

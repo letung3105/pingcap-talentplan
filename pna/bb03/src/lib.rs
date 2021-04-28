@@ -3,10 +3,10 @@
 
 #![deny(missing_docs, missing_debug_implementations)]
 
-use std::{error, net::SocketAddr};
 use std::fmt;
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::net::{self, TcpStream};
+use std::{error, net::SocketAddr};
 
 /// Encoded type termination
 pub const CRLF: [u8; 2] = [b'\r', b'\n'];
@@ -21,8 +21,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug)]
 pub struct BluisClient {
     addr_remote: SocketAddr,
+    stream: TcpStream,
     stream_reader: BufReader<TcpStream>,
-    stream_writer: BufWriter<TcpStream>,
 }
 
 impl BluisClient {
@@ -34,42 +34,50 @@ impl BluisClient {
         let addr_remote = addr_remote.into();
         let stream = TcpStream::connect(addr_remote)?;
         let stream_reader = BufReader::new(stream.try_clone()?);
-        let stream_writer = BufWriter::new(stream.try_clone()?);
+
         Ok(Self {
             addr_remote,
+            stream,
             stream_reader,
-            stream_writer,
         })
     }
 
     /// Send a `PING` command to the RESP server
-    pub fn ping(&mut self, message: String) -> Result<String> {
-        let mut stream = TcpStream::connect(self.addr_remote)?;
-
+    pub fn ping(&mut self, message: Option<String>) -> Result<String> {
         let mut packet = Vec::new();
-        packet.extend_from_slice(b"*2\r\n$4\r\nPING\r\n");
-        packet.extend_from_slice(format!("${}\r\n", message.len()).as_bytes());
-        packet.extend_from_slice(format!("{}\r\n", message).as_bytes());
+        match message {
+            None => packet.extend_from_slice(b"*1\r\n$4\r\nPING\r\n"),
+            Some(m) => {
+                packet.extend_from_slice(b"*2\r\n$4\r\nPING\r\n");
+                packet.extend_from_slice(format!("${}\r\n", m.len()).as_bytes());
+                packet.extend_from_slice(format!("{}\r\n", m).as_bytes());
+            }
+        }
 
         println!("Encoded ping command: {:?}", packet);
-        stream.write_all(&packet)?;
+        self.stream.write_all(&packet)?;
 
+        let mut resp_len_buf = vec![];
+        self.stream_reader.read_exact(&mut [0; 1])?;
+        self.stream_reader.read_until(b'\r', &mut resp_len_buf)?;
+        self.stream_reader.read_exact(&mut [0; 1])?;
 
-        let mut reply_size_buf = vec![];
-        self.stream_reader.consume(1);
-        self.stream_reader.read_until(b'\r', &mut reply_size_buf)?;
-        self.stream_reader.consume(2);
-        let reply_size = String::from_utf8(reply_size_buf).unwrap().parse().unwrap();
-        println!("Reply size: {:?}", reply_size);
+        let resp_len_buf = match resp_len_buf.split_last() {
+            None => Vec::new(),
+            Some((_, until_last)) => Vec::from(until_last),
+        };
+        let resp_len = String::from_utf8(resp_len_buf).unwrap().parse().unwrap();
+        println!("Response length: {:?}", resp_len);
 
-        let mut reply_buf = vec![0u8; reply_size];
-        self.stream_reader.read_exact(&mut reply_buf)?;
-        println!("Reply (bytes): {:?}", reply_buf);
+        let mut resp_buf = vec![0u8; resp_len];
+        self.stream_reader.read_exact(&mut resp_buf)?;
+        self.stream_reader.read_exact(&mut [0; 2])?;
+        println!("Response bytes: {:?}", resp_buf);
 
-        let reply_string = String::from_utf8(reply_buf).unwrap();
-        println!("Reply (string): {:?}", reply_string);
+        let resp_string = String::from_utf8(resp_buf).unwrap();
+        println!("Response text: {:?}", resp_string);
 
-        Ok(reply_string)
+        Ok(resp_string)
     }
 }
 
