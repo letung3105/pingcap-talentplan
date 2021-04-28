@@ -4,7 +4,7 @@
 #![deny(missing_docs, missing_debug_implementations)]
 
 use std::fmt;
-use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{self, TcpStream};
 use std::{error, net::SocketAddr};
 
@@ -46,17 +46,19 @@ impl BluisClient {
     pub fn ping(&mut self, message: Option<String>) -> Result<String> {
         let mut packet = Vec::new();
         match message {
+            // encode a PING command with no argument
             None => packet.extend_from_slice(b"*1\r\n$4\r\nPING\r\n"),
+            // encode a PING command with an argument
             Some(m) => {
                 packet.extend_from_slice(b"*2\r\n$4\r\nPING\r\n");
                 packet.extend_from_slice(format!("${}\r\n", m.len()).as_bytes());
                 packet.extend_from_slice(format!("{}\r\n", m).as_bytes());
             }
         }
-
         println!("Encoded ping command: {:?}", packet);
         self.stream.write_all(&packet)?;
 
+        // get bulk string's length
         let mut resp_len_buf = vec![];
         self.stream_reader.read_exact(&mut [0; 1])?;
         self.stream_reader.read_until(b'\r', &mut resp_len_buf)?;
@@ -69,6 +71,7 @@ impl BluisClient {
         let resp_len = String::from_utf8(resp_len_buf).unwrap().parse().unwrap();
         println!("Response length: {:?}", resp_len);
 
+        // get bulk string's content
         let mut resp_buf = vec![0u8; resp_len];
         self.stream_reader.read_exact(&mut resp_buf)?;
         self.stream_reader.read_exact(&mut [0; 2])?;
@@ -76,7 +79,6 @@ impl BluisClient {
 
         let resp_string = String::from_utf8(resp_buf).unwrap();
         println!("Response text: {:?}", resp_string);
-
         Ok(resp_string)
     }
 }
