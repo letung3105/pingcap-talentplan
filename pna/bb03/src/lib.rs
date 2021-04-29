@@ -8,9 +8,6 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{self, TcpStream};
 use std::{error, net::SocketAddr};
 
-/// Encoded type termination
-pub const CRLF: [u8; 2] = [b'\r', b'\n'];
-
 /// IP address for testing the client/server on the local machine
 pub const TEST_ADDR: ([u8; 4], u16) = ([127, 0, 0, 1], 8080);
 
