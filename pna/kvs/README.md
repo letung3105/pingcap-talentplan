@@ -21,11 +21,11 @@ The underlying software architecture of this project largely resembles another w
 # TODOs
 
 Leson plan:
-+ [ ] Building block 01
-+ [ ] Project 01
-+ [ ] Building block 02
-+ [ ] Project 02
-+ [ ] Building block 03
++ [x] Building block 01
++ [x] Project 01
++ [x] Building block 02
++ [x] Project 02
++ [x] Building block 03
 + [ ] Project 03
 + [ ] Building block 04
 + [ ] Project 04
