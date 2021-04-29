@@ -69,7 +69,7 @@ impl KvStore {
         let prev_epochs = Self::previous_epochs(&active_path)?;
         let active_epoch = prev_epochs.last().map(|&e| e + 1).unwrap_or_default();
 
-        // go through all log files and rebuild the index
+        // go through all log files, rebuild the index, and keep the handle to each log for later access
         let mut garbage = 0;
         let mut readers = HashMap::new();
         let mut index_map = HashMap::new();
@@ -81,7 +81,7 @@ impl KvStore {
             garbage += Self::build_index(&mut reader, &mut index_map, prev_epoch)?;
             readers.insert(prev_epoch, reader);
         }
-        // create a new log file for this instance
+        // create a new log file for this instance, taking a write handle and a read handle for it
         let (writer, reader) = Self::create_log(&active_path, active_epoch)?;
         readers.insert(active_epoch, reader);
 
