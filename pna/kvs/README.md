@@ -2,6 +2,7 @@
 
 A simple key-value store that is created while following [Pingcap Talent Plan].
 
+
 # Design decisions
 
 The underlying software architecture of this project largely resembles another widely famous key-value store, [Bitcask]. During the development of the project, the following decisions were made:
@@ -18,6 +19,7 @@ The underlying software architecture of this project largely resembles another w
     + Old log files are only deleted when the compaced log is created and the in-memory index is updated, as a result, if any error occurs during compaction, the system is still consistency since all log files will not be deleted.
     + Using multiple log files simplifies the compaction process.
 
+
 # TODOs
 
 Leson plan:
@@ -32,11 +34,9 @@ Leson plan:
 + [ ] Building block 05
 + [ ] Project 05
 
-Addition improvements:
-
 
 <!-- REFERENCES -->
 [Pingcap Talent Plan]: https://github.com/pingcap/talent-plan
 [Bitcask]: https://github.com/basho/bitcask
 [`bincode`]: https://docs.rs/crate/bincode
-[`Protocol buffer`]: https://developers.google.com/protocol-buffers/
+[Protocol buffer]: https://developers.google.com/protocol-buffers/
