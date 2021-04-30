@@ -11,6 +11,9 @@ impl std::error::Error for Error {}
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.as_ref() {
+            ErrorKind::CouldNotParseKvsEngineVariant => {
+                write!(f, "Could not parse key-value store engine variant")
+            }
             ErrorKind::KeyNotFound => write!(f, "Key not found"),
             ErrorKind::InvalidCommand => write!(f, "Invalid command"),
             ErrorKind::InvalidLogEpoch => write!(f, "Invalid log epoch"),
@@ -35,6 +38,8 @@ impl From<bincode::Error> for Error {
 /// All types of error that can occur
 #[derive(Debug)]
 pub enum ErrorKind {
+    /// Error occurs when trying to parse a `KvsEngineVariant`
+    CouldNotParseKvsEngineVariant,
     /// Error occurs when performing operations on non-existent key.
     KeyNotFound,
     /// Error occurs when encounter a command type that is not supposed to be there

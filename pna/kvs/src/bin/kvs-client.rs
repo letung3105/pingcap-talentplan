@@ -1,4 +1,4 @@
-use kvs::{Error, ErrorKind, KvStore, KvsEngine};
+use kvs::{Error, ErrorKind, KvStore, KvsClient, KvsEngine};
 use std::net::SocketAddr;
 use structopt::StructOpt;
 
@@ -12,23 +12,21 @@ fn main() {
 fn run() -> kvs::Result<()> {
     let opt = ClientCliOpt::from_args();
 
-    let dir = std::env::current_dir()?;
-    let mut kvs = KvStore::open(dir)?;
-
     match opt.sub_cmd {
-        ClientCliSubCommand::Set {
-            key,
-            val,
-            addr: _addr,
-        } => {
-            kvs.set(key, val)?;
+        ClientCliSubCommand::Set { key, val, addr } => {
+            let kvs_client = KvsClient::new(addr);
+            kvs_client.set_req(key, val)?;
         }
-        ClientCliSubCommand::Get { key, addr: _addr } => match kvs.get(key)? {
-            Some(val) => println!("{}", val),
-            None => println!("{}", Error::new(ErrorKind::KeyNotFound)),
-        },
-        ClientCliSubCommand::Rm { key, addr: _addr } => {
-            kvs.remove(key)?;
+        ClientCliSubCommand::Get { key, addr } => {
+            let kvs_client = KvsClient::new(addr);
+            match kvs_client.get_req(key)? {
+                Some(val) => println!("{}", val),
+                None => println!("{}", Error::new(ErrorKind::KeyNotFound)),
+            }
+        }
+        ClientCliSubCommand::Rm { key, addr } => {
+            let kvs_client = KvsClient::new(addr);
+            kvs_client.remove_req(key)?;
         }
     }
 

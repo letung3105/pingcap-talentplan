@@ -5,9 +5,13 @@
 
 pub mod engines;
 pub mod error;
+pub mod network;
 
 pub use engines::KvStore;
 pub use error::{Error, ErrorKind, Result};
+pub use network::{KvsClient, KvsServer};
+
+use std::str::FromStr;
 
 /// Define the interface of a key-value store
 pub trait KvsEngine {
@@ -19,4 +23,26 @@ pub trait KvsEngine {
 
     /// Removes a key.
     fn remove(&mut self, key: String) -> Result<()>;
+}
+
+/// Different engines that can be used for the key-value store
+#[derive(Debug)]
+pub enum KvsEngineVariant {
+    /// Default engine provided by the library
+    Kvs,
+    /// Uses the in-memory key-value store `sled`
+    Sled,
+}
+
+impl FromStr for KvsEngineVariant {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let name = s.to_lowercase();
+        match name.as_str() {
+            "kvs" => Ok(Self::Kvs),
+            "sled" => Ok(Self::Sled),
+            _ => Err(Error::new(ErrorKind::CouldNotParseKvsEngineVariant)),
+        }
+    }
 }
