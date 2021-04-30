@@ -1,4 +1,5 @@
-use kvs::{Error, ErrorKind, KvStore, KvsEngine, Result};
+use kvs::{Error, ErrorKind, KvStore, KvsEngine};
+use std::net::SocketAddr;
 use structopt::StructOpt;
 
 fn main() {
@@ -8,21 +9,25 @@ fn main() {
     }
 }
 
-fn run() -> Result<()> {
-    let opt = CliOpt::from_args();
+fn run() -> kvs::Result<()> {
+    let opt = ClientCliOpt::from_args();
 
     let dir = std::env::current_dir()?;
     let mut kvs = KvStore::open(dir)?;
 
     match opt.sub_cmd {
-        CliSubCommand::Set { key, val } => {
+        ClientCliSubCommand::Set {
+            key,
+            val,
+            addr: _addr,
+        } => {
             kvs.set(key, val)?;
         }
-        CliSubCommand::Get { key } => match kvs.get(key)? {
+        ClientCliSubCommand::Get { key, addr: _addr } => match kvs.get(key)? {
             Some(val) => println!("{}", val),
             None => println!("{}", Error::new(ErrorKind::KeyNotFound)),
         },
-        CliSubCommand::Rm { key } => {
+        ClientCliSubCommand::Rm { key, addr: _addr } => {
             kvs.remove(key)?;
         }
     }
@@ -30,26 +35,49 @@ fn run() -> Result<()> {
     Ok(())
 }
 
-#[derive(Debug, StructOpt)]
-struct CliOpt {
+#[derive(StructOpt)]
+struct ClientCliOpt {
     #[structopt(subcommand)]
-    sub_cmd: CliSubCommand,
+    sub_cmd: ClientCliSubCommand,
 }
 
-#[derive(Debug, StructOpt)]
-enum CliSubCommand {
+#[derive(StructOpt)]
+enum ClientCliSubCommand {
+    #[structopt(about = "Set a value to a key in the key-value store")]
     Set {
         #[structopt(name = "KEY")]
         key: String,
         #[structopt(name = "VALUE")]
         val: String,
+        #[structopt(
+            long = "addr",
+            about = "IP address of the key-value store",
+            default_value = "127.0.0.1:4000"
+        )]
+        addr: SocketAddr,
     },
+
+    #[structopt(about = "Get a value from a key in the key-value store")]
     Get {
         #[structopt(name = "KEY")]
         key: String,
+        #[structopt(
+            long = "addr",
+            about = "IP address of the key-value store",
+            default_value = "127.0.0.1:4000"
+        )]
+        addr: SocketAddr,
     },
+
+    #[structopt(about = "Remove a key from the key-value store")]
     Rm {
         #[structopt(name = "KEY")]
         key: String,
+        #[structopt(
+            long = "addr",
+            about = "IP address of the key-value store",
+            default_value = "127.0.0.1:4000"
+        )]
+        addr: SocketAddr,
     },
 }
