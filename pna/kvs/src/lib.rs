@@ -3,10 +3,10 @@
 
 #![deny(missing_docs, missing_debug_implementations)]
 
-pub mod kvs_engine;
+pub mod engines;
 pub mod error;
 
-pub use kvs_engine::KvStore;
+pub use engines::KvStore;
 pub use error::{Error, ErrorKind, Result};
 
 /// Define the interface of a key-value store
