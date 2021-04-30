@@ -60,7 +60,7 @@ impl KvsServer {
 
     /// Starting accepting requests on the given IP address and modify the key-value store
     /// based on the received command
-    pub fn serve<A>(addr: A)
+    pub fn serve<A>(&self, addr: A) -> Result<()>
     where
         A: Into<SocketAddr>,
     {
