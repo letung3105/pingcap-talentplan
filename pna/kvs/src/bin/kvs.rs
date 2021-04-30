@@ -1,4 +1,4 @@
-use kvs::{Error, ErrorKind, KvStore, Result};
+use kvs::{Error, ErrorKind, KvStore, KvsEngine, Result};
 use structopt::StructOpt;
 
 fn main() {
