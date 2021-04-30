@@ -1,7 +1,6 @@
-//! Provides simple data structures with associated methods that help with storing data in
-//! key-value pairs.
+//! Implementations of `KvsEngine` that use different underlying file systems for storing key-value pairs on disk
 
-use crate::{KvsEngine, Error, ErrorKind, Result};
+use crate::{Error, ErrorKind, KvsEngine, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::OsStr;
