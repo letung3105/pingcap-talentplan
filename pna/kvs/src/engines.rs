@@ -51,7 +51,7 @@ pub struct KvStore {
     garbage: u64,
     writer: BufWriter<File>,
     readers: HashMap<u64, BufReader<File>>,
-    index_map: HashMap<String, CommandIndex>,
+    index_map: HashMap<String, KvsLogEntryIndex>,
 }
 
 impl KvStore {
@@ -112,7 +112,7 @@ impl KvStore {
                     let merged_offset = merged_writer.stream_position()?;
                     io::copy(&mut entry_reader, &mut merged_writer)?;
 
-                    *index = CommandIndex {
+                    *index = KvsLogEntryIndex {
                         epoch: merged_epoch,
                         offset: merged_offset,
                         length: index.length,
@@ -150,11 +150,11 @@ impl KvsEngine for KvStore {
             then the log pointer (file offset) is stored in an in-memory index from key to pointer.
         */
         let active_offset = self.writer.stream_position()?;
-        let command = Command::Set(key.clone(), val);
+        let command = KvsCommandLogEntry::Set(key.clone(), val);
         bincode::serialize_into(&mut self.writer, &command)?;
         self.writer.flush()?;
 
-        let index = CommandIndex {
+        let index = KvsLogEntryIndex {
             epoch: self.active_epoch,
             offset: active_offset,
             length: self.writer.stream_position()? - active_offset,
@@ -185,7 +185,7 @@ impl KvsEngine for KvStore {
                 Some(reader) => {
                     reader.seek(SeekFrom::Start(index.offset))?;
                     match bincode::deserialize_from(reader)? {
-                        Command::Set(_, value) => Ok(Some(value)),
+                        KvsCommandLogEntry::Set(_, value) => Ok(Some(value)),
                         _ => Err(Error::new(ErrorKind::InvalidCommand)),
                     }
                 }
@@ -211,7 +211,7 @@ impl KvsEngine for KvStore {
             return Err(Error::new(ErrorKind::KeyNotFound));
         }
 
-        let command = Command::Rm(key.clone());
+        let command = KvsCommandLogEntry::Rm(key.clone());
         bincode::serialize_into(&mut self.writer, &command)?;
         self.writer.flush()?;
 
@@ -226,13 +226,13 @@ impl KvsEngine for KvStore {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-enum Command {
+enum KvsCommandLogEntry {
     Set(String, String),
     Rm(String),
 }
 
 #[derive(Debug)]
-struct CommandIndex {
+struct KvsLogEntryIndex {
     epoch: u64,
     offset: u64,
     length: u64,
@@ -240,7 +240,7 @@ struct CommandIndex {
 
 fn build_index(
     reader: &mut BufReader<File>,
-    index_map: &mut HashMap<String, CommandIndex>,
+    index_map: &mut HashMap<String, KvsLogEntryIndex>,
     epoch: u64,
 ) -> Result<u64> {
     reader.seek(SeekFrom::Start(0))?;
@@ -249,8 +249,8 @@ fn build_index(
         let offset = reader.stream_position()?;
         match bincode::deserialize_from(reader.by_ref()) {
             Ok(command) => match command {
-                Command::Set(key, _) => {
-                    let index = CommandIndex {
+                KvsCommandLogEntry::Set(key, _) => {
+                    let index = KvsLogEntryIndex {
                         epoch,
                         offset,
                         length: reader.stream_position()? - offset,
@@ -259,7 +259,7 @@ fn build_index(
                         garbage += prev_index.length;
                     };
                 }
-                Command::Rm(key) => {
+                KvsCommandLogEntry::Rm(key) => {
                     if let Some(prev_index) = index_map.remove(&key) {
                         garbage += prev_index.length;
                     };
