@@ -1,7 +1,6 @@
 //! Providing network API for interacting with the key-value store implementation
 
 use crate::{KvsEngineVariant, Result};
-use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
@@ -66,12 +65,4 @@ impl KvsServer {
     {
         todo!()
     }
-}
-
-/// Data structure for holding the content of messages exchanged between the client and the server
-#[derive(Debug, Serialize, Deserialize)]
-enum KvsMessage {
-    Set(String, String),
-    Get(String),
-    Remove(String),
 }
