@@ -8,7 +8,6 @@ use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
 
 mod proto {
-    #![allow(missing_docs)]
     include!(concat!(env!("OUT_DIR"), "/kvs.network.proto.rs"));
 }
 
