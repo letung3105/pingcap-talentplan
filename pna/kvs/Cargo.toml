@@ -10,7 +10,8 @@ edition = "2018"
 structopt = "0.3.21"
 serde = { version = "1.0.125", features = ["derive"] }
 bincode = "1.3.3"
-rmp-serde = "0.15.4"
+prost = "0.7"
+bytes = "1.0.1"
 
 [dev-dependencies]
 assert_cmd = "0.11.0"
@@ -19,3 +20,6 @@ tempfile = "3.0.7"
 walkdir = "2.2.7"
 criterion = "0.2.11"
 rand = "0.6.5"
+
+[build-dependencies]
+prost-build = "0.7.0"
