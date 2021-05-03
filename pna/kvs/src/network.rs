@@ -1,15 +1,19 @@
 //! Providing network API for interacting with the key-value store implementation
 
-use crate::{Error, ErrorKind, KvsEngineVariant, Result};
-use bytes::{BufMut, BytesMut};
-use prost::Message;
-use std::io::{BufReader, Read, Write};
-use std::net::{SocketAddr, TcpStream};
-use std::path::PathBuf;
-
 mod proto {
     include!(concat!(env!("OUT_DIR"), "/kvs.network.proto.rs"));
 }
+
+use bytes::{BufMut, BytesMut};
+use prost::Message;
+use proto::kvs_request::KvsRequestKind;
+use proto::kvs_response::ResponseResult;
+use proto::{KvsRequest, KvsResponse};
+use std::io::{BufReader, Read, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::path::PathBuf;
+
+use crate::{Error, ErrorKind, KvStore, KvsEngine, KvsEngineVariant, Result};
 
 /// Implementation of a client that can communicate with the system's server
 #[derive(Debug)]
@@ -29,8 +33,8 @@ impl KvsClient {
 
     /// Send set command request to the key-val store's server
     pub fn set_req(&self, key: String, value: String) -> Result<()> {
-        let req = proto::KvsRequest {
-            kind: proto::kvs_request::KvsRequestKind::Set as i32,
+        let req = KvsRequest {
+            kind: KvsRequestKind::Set as i32,
             key,
             value,
         };
@@ -38,9 +42,7 @@ impl KvsClient {
         let res = self.make_request(req)?;
         match res.response_result {
             Some(result) => match result {
-                proto::kvs_response::ResponseResult::ErrorMessage(msg) => {
-                    Err(Error::new(ErrorKind::ServerError(msg)))
-                }
+                ResponseResult::ErrorMessage(msg) => Err(Error::new(ErrorKind::ServerError(msg))),
                 _ => Err(Error::new(ErrorKind::InvalidKvsResponse)),
             },
             None => Ok(()),
@@ -49,8 +51,8 @@ impl KvsClient {
 
     /// Send get command request to the key-val store's server
     pub fn get_req(&self, key: String) -> Result<Option<String>> {
-        let req = proto::KvsRequest {
-            kind: proto::kvs_request::KvsRequestKind::Get as i32,
+        let req = KvsRequest {
+            kind: KvsRequestKind::Get as i32,
             key,
             value: String::default(),
         };
@@ -58,10 +60,8 @@ impl KvsClient {
         let res = self.make_request(req)?;
         match res.response_result {
             Some(result) => match result {
-                proto::kvs_response::ResponseResult::ErrorMessage(msg) => {
-                    Err(Error::new(ErrorKind::ServerError(msg)))
-                }
-                proto::kvs_response::ResponseResult::GetCommandValue(value) => Ok(Some(value)),
+                ResponseResult::ErrorMessage(msg) => Err(Error::new(ErrorKind::ServerError(msg))),
+                ResponseResult::GetCommandValue(value) => Ok(Some(value)),
             },
             None => Ok(None),
         }
@@ -69,8 +69,8 @@ impl KvsClient {
 
     /// Send remove command request to the key-val store's server
     pub fn remove_req(&self, key: String) -> Result<()> {
-        let req = proto::KvsRequest {
-            kind: proto::kvs_request::KvsRequestKind::Remove as i32,
+        let req = KvsRequest {
+            kind: KvsRequestKind::Remove as i32,
             key,
             value: String::default(),
         };
@@ -78,16 +78,14 @@ impl KvsClient {
         let res = self.make_request(req)?;
         match res.response_result {
             Some(result) => match result {
-                proto::kvs_response::ResponseResult::ErrorMessage(msg) => {
-                    Err(Error::new(ErrorKind::ServerError(msg)))
-                }
+                ResponseResult::ErrorMessage(msg) => Err(Error::new(ErrorKind::ServerError(msg))),
                 _ => Err(Error::new(ErrorKind::InvalidKvsResponse)),
             },
             None => Ok(()),
         }
     }
 
-    fn make_request(&self, req: proto::KvsRequest) -> Result<proto::KvsResponse> {
+    fn make_request(&self, req: KvsRequest) -> Result<KvsResponse> {
         let mut request_bytes = vec![];
         req.encode_length_delimited(&mut request_bytes)?;
         let mut stream = TcpStream::connect(self.server_addr)?;
@@ -110,7 +108,7 @@ impl KvsClient {
                     stream_reader.read_exact(&mut msg_bytes_remaining)?;
                     msg_bytes.put_slice(&msg_bytes_remaining);
 
-                    return Ok(proto::KvsResponse::decode(
+                    return Ok(KvsResponse::decode(
                         msg_bytes.split_off(len_delim_bytes_len),
                     )?);
                 }
@@ -128,107 +126,114 @@ impl KvsClient {
 /// on the underlying key-value storage engine
 #[derive(Debug)]
 pub struct KvsServer {
-    engine_variant: KvsEngineVariant,
-    data_path: PathBuf,
+    kvs_engine: Box<dyn KvsEngine>,
 }
 
 impl KvsServer {
     /// Create a new key-value store client.
-    pub fn new<P>(engine_variant: KvsEngineVariant, data_path: P) -> Self
+    pub fn new<P>(engine_variant: KvsEngineVariant, data_path: P) -> Result<Self>
     where
         P: Into<PathBuf>,
     {
-        // let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
-        // for stream in listener.incoming() {
-        //     let mut stream = stream.unwrap();
-        //     let mut sreader = BufReader::new(stream.try_clone().unwrap());
-        //     println!("Client accepted!");
-
-        //     let mut len_delim_buf = [0u8; 10];
-        //     let mut msg_len_delim = BytesMut::new();
-
-        //     loop {
-        //         sreader.read(&mut len_delim_buf).unwrap();
-        //         msg_len_delim.put_slice(&len_delim_buf);
-        //         println!("-- Buffer {:?}", msg_len_delim);
-
-        //         match prost::decode_length_delimiter(msg_len_delim.as_ref()) {
-        //             Ok(len) => {
-        //                 println!("-- Length delimiter: {}", len);
-        //                 let len_delim_length = prost::length_delimiter_len(len);
-        //                 let n_remaining = len - (msg_len_delim.len() - len_delim_length);
-        //                 let mut msg_remaining = vec![0u8; n_remaining];
-        //                 sreader.read_exact(&mut msg_remaining).unwrap();
-        //                 msg_len_delim.put_slice(&msg_remaining);
-        //                 println!("-- Buffer {:?}", msg_len_delim);
-
-        //                 let msg =
-        //                     CommandRequest::decode(msg_len_delim.split_off(len_delim_length)).unwrap();
-        //                 println!("-- Parsed: {:?}", msg);
-
-        //                 match CommandName::from_i32(msg.name) {
-        //                     Some(CommandName::Set) => {
-        //                         let resp = CommandResponse {
-        //                             command_response_body: None,
-        //                         };
-        //                         let mut buf = vec![];
-        //                         resp.encode_length_delimited(&mut buf).unwrap();
-        //                         stream.write_all(&buf).unwrap();
-        //                         println!("Sending {:?}", resp);
-        //                         println!("-- Buffer {:?}", buf);
-        //                     }
-        //                     Some(CommandName::Get) => {
-        //                         let resp = CommandResponse {
-        //                             command_response_body: Some(CommandResponseBody::GetResp(
-        //                                 GetCommandResponse {
-        //                                     value: "Hey there!".to_string(),
-        //                                 },
-        //                             )),
-        //                         };
-        //                         let mut buf = vec![];
-        //                         resp.encode_length_delimited(&mut buf).unwrap();
-        //                         stream.write_all(&buf).unwrap();
-        //                         println!("Sending {:?}", resp);
-        //                         println!("-- Buffer {:?}", buf);
-        //                     }
-        //                     Some(CommandName::Remove) => {
-        //                         let resp = CommandResponse {
-        //                             command_response_body: None,
-        //                         };
-        //                         let mut buf = vec![];
-        //                         resp.encode_length_delimited(&mut buf).unwrap();
-        //                         stream.write_all(&buf).unwrap();
-        //                         println!("Sending {:?}", resp);
-        //                         println!("-- Buffer {:?}", buf);
-        //                     }
-        //                     None => {}
-        //                 }
-
-        //                 break;
-        //             }
-        //             Err(err) => {
-        //                 if msg_len_delim.len() > 10 {
-        //                     eprintln!("{}", err);
-        //                     break;
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
-
         let data_path = data_path.into();
-        Self {
-            engine_variant,
-            data_path,
-        }
+        let kvs_engine = Box::new(match engine_variant {
+            KvsEngineVariant::Kvs => KvStore::open(data_path)?,
+            KvsEngineVariant::Sled => todo!(),
+        });
+
+        Ok(Self { kvs_engine })
     }
 
     /// Starting accepting requests on the given IP address and modify the key-value store
     /// based on the received command
-    pub fn serve<A>(&self, addr: A) -> Result<()>
+    pub fn serve<A>(&mut self, addr: A) -> Result<()>
     where
         A: Into<SocketAddr>,
     {
-        todo!()
+        let listener = TcpListener::bind(addr.into()).unwrap();
+        for stream in listener.incoming() {
+            if let Ok(mut stream) = stream {
+                if let Err(err) = self.handle_client(stream.try_clone()?) {
+                    eprintln!("Could not handle client {}", err);
+                    let res = KvsResponse {
+                        response_result: Some(ResponseResult::ErrorMessage(err.to_string())),
+                    };
+                    let mut res_buf = vec![];
+                    res.encode_length_delimited(&mut res_buf)?;
+                    stream.write_all(&res_buf)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn handle_client(&mut self, stream: TcpStream) -> Result<()> {
+        let mut stream_reader = BufReader::new(stream.try_clone()?);
+        let mut len_delim_buf = [0u8; 10];
+        let mut msg_len_delim = BytesMut::new();
+
+        loop {
+            stream_reader.read(&mut len_delim_buf).unwrap();
+            msg_len_delim.put_slice(&len_delim_buf);
+
+            match prost::decode_length_delimiter(msg_len_delim.as_ref()) {
+                Ok(len) => {
+                    let len_delim_length = prost::length_delimiter_len(len);
+                    let n_remaining = len - (msg_len_delim.len() - len_delim_length);
+
+                    let mut msg_remaining = vec![0u8; n_remaining];
+                    stream_reader.read_exact(&mut msg_remaining).unwrap();
+                    msg_len_delim.put_slice(&msg_remaining);
+
+                    let req = KvsRequest::decode(msg_len_delim.split_off(len_delim_length))?;
+                    match KvsRequestKind::from_i32(req.kind) {
+                        Some(KvsRequestKind::Set) => {
+                            return self.handle_set(stream, req.key, req.value)
+                        }
+                        Some(KvsRequestKind::Get) => return self.handle_get(stream, req.key),
+                        Some(KvsRequestKind::Remove) => return self.handle_remove(stream, req.key),
+                        None => return Err(Error::new(ErrorKind::InvalidKvsRequest)),
+                    }
+                }
+                Err(err) => {
+                    if msg_len_delim.len() > 10 {
+                        return Err(Error::from(err));
+                    }
+                }
+            };
+        }
+    }
+
+    fn handle_set(&mut self, mut stream: TcpStream, key: String, value: String) -> Result<()> {
+        self.kvs_engine.set(key, value)?;
+        let res = KvsResponse {
+            response_result: None,
+        };
+        let mut res_buf = vec![];
+        res.encode_length_delimited(&mut res_buf)?;
+        stream.write_all(&res_buf)?;
+        Ok(())
+    }
+
+    fn handle_get(&mut self, mut stream: TcpStream, key: String) -> Result<()> {
+        let value = self.kvs_engine.get(key)?;
+        let res = KvsResponse {
+            response_result: value.map(|val| ResponseResult::GetCommandValue(val)),
+        };
+        let mut res_buf = vec![];
+        res.encode_length_delimited(&mut res_buf)?;
+        stream.write_all(&res_buf)?;
+        Ok(())
+    }
+
+    fn handle_remove(&mut self, mut stream: TcpStream, key: String) -> Result<()> {
+        self.kvs_engine.remove(key)?;
+        let res = KvsResponse {
+            response_result: None,
+        };
+        let mut res_buf = vec![];
+        res.encode_length_delimited(&mut res_buf)?;
+        stream.write_all(&res_buf)?;
+        Ok(())
     }
 }

@@ -25,6 +25,12 @@ pub trait KvsEngine {
     fn remove(&mut self, key: String) -> Result<()>;
 }
 
+impl std::fmt::Debug for dyn KvsEngine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Key-value store engine")
+    }
+}
+
 /// Different engines that can be used for the key-value store
 #[derive(Debug)]
 pub enum KvsEngineVariant {

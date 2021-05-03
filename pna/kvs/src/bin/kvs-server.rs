@@ -1,6 +1,6 @@
 use kvs::{KvsEngineVariant, KvsServer};
-use std::net::SocketAddr;
 use std::env;
+use std::net::SocketAddr;
 use structopt::StructOpt;
 
 fn main() {
@@ -13,7 +13,7 @@ fn main() {
 fn run() -> kvs::Result<()> {
     let opt = ServerCliOpt::from_args();
     let data_path = env::current_dir()?;
-    let kvs_server = KvsServer::new(opt.engine_variant, data_path);
+    let mut kvs_server = KvsServer::new(opt.engine_variant, data_path)?;
     kvs_server.serve(opt.server_addr)
 }
 

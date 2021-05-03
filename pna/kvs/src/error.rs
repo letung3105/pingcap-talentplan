@@ -16,6 +16,7 @@ impl std::fmt::Display for Error {
             ErrorKind::InvalidKvsEngineVariant => {
                 write!(f, "Could not parse key-value store engine variant")
             }
+            ErrorKind::InvalidKvsRequest => write!(f, "Invalid request from the client"),
             ErrorKind::InvalidKvsResponse => write!(f, "Invalid response from the server"),
             ErrorKind::KeyNotFound => write!(f, "Key not found"),
             ErrorKind::ServerError(msg) => write!(f, "Server-side error occurred {}", msg),
@@ -60,6 +61,8 @@ pub enum ErrorKind {
     InvalidLogIndex,
     /// Error occurs when trying to parse a `KvsEngineVariant`
     InvalidKvsEngineVariant,
+    /// Error for when receiving an unexpected request from the client
+    InvalidKvsRequest,
     /// Error for when receiving an unexpected reponse from the server
     InvalidKvsResponse,
     /// Error occurs when performing operations on non-existent key

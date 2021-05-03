@@ -1,12 +1,13 @@
 //! Implementations of `KvsEngine` that use different underlying file systems for storing key-value pairs on disk
 
-use crate::{Error, ErrorKind, KvsEngine, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+
+use crate::{Error, ErrorKind, KvsEngine, Result};
 
 const GARBAGE_THRESHOLD: u64 = 4 * 1024 * 1024;
 
