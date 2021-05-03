@@ -118,7 +118,7 @@ impl KvStore {
                         length: index.length,
                     };
                 }
-                None => return Err(Error::new(ErrorKind::InvalidLogEpoch)),
+                None => return Err(Error::new(ErrorKind::InvalidLogIndex)),
             }
         }
         merged_writer.flush()?;
@@ -150,7 +150,7 @@ impl KvsEngine for KvStore {
             then the log pointer (file offset) is stored in an in-memory index from key to pointer.
         */
         let active_offset = self.writer.stream_position()?;
-        let command = KvsCommandLogEntry::Set(key.clone(), val);
+        let command = KvsLogEntry::Set(key.clone(), val);
         bincode::serialize_into(&mut self.writer, &command)?;
         self.writer.flush()?;
 
@@ -185,11 +185,11 @@ impl KvsEngine for KvStore {
                 Some(reader) => {
                     reader.seek(SeekFrom::Start(index.offset))?;
                     match bincode::deserialize_from(reader)? {
-                        KvsCommandLogEntry::Set(_, value) => Ok(Some(value)),
-                        _ => Err(Error::new(ErrorKind::InvalidCommand)),
+                        KvsLogEntry::Set(_, value) => Ok(Some(value)),
+                        _ => Err(Error::new(ErrorKind::InvalidLogEntry)),
                     }
                 }
-                None => Err(Error::new(ErrorKind::InvalidLogEpoch)),
+                None => Err(Error::new(ErrorKind::InvalidLogIndex)),
             },
             None => Ok(None),
         }
@@ -211,7 +211,7 @@ impl KvsEngine for KvStore {
             return Err(Error::new(ErrorKind::KeyNotFound));
         }
 
-        let command = KvsCommandLogEntry::Rm(key.clone());
+        let command = KvsLogEntry::Rm(key.clone());
         bincode::serialize_into(&mut self.writer, &command)?;
         self.writer.flush()?;
 
@@ -226,7 +226,7 @@ impl KvsEngine for KvStore {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-enum KvsCommandLogEntry {
+enum KvsLogEntry {
     Set(String, String),
     Rm(String),
 }
@@ -249,7 +249,7 @@ fn build_index(
         let offset = reader.stream_position()?;
         match bincode::deserialize_from(reader.by_ref()) {
             Ok(command) => match command {
-                KvsCommandLogEntry::Set(key, _) => {
+                KvsLogEntry::Set(key, _) => {
                     let index = KvsLogEntryIndex {
                         epoch,
                         offset,
@@ -259,7 +259,7 @@ fn build_index(
                         garbage += prev_index.length;
                     };
                 }
-                KvsCommandLogEntry::Rm(key) => {
+                KvsLogEntry::Rm(key) => {
                     if let Some(prev_index) = index_map.remove(&key) {
                         garbage += prev_index.length;
                     };

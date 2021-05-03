@@ -42,7 +42,7 @@ impl FromStr for KvsEngineVariant {
         match name.as_str() {
             "kvs" => Ok(Self::Kvs),
             "sled" => Ok(Self::Sled),
-            _ => Err(Error::new(ErrorKind::CouldNotParseKvsEngineVariant)),
+            _ => Err(Error::new(ErrorKind::InvalidKvsEngineVariant)),
         }
     }
 }
