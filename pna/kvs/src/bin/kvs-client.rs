@@ -1,4 +1,4 @@
-use kvs::{Error, ErrorKind, KvStore, KvsClient, KvsEngine};
+use kvs::{Error, ErrorKind, KvsClient};
 use std::net::SocketAddr;
 use structopt::StructOpt;
 
