@@ -1,5 +1,7 @@
 //! Errors for operations on the key-value store
 
+// TODO: Separate some error kinds to a new error type
+
 /// Library result type
 pub type Result<T> = std::result::Result<T, Error>;
 
