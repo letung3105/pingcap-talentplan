@@ -96,10 +96,11 @@ impl KvsClient {
         let mut msg_bytes = BytesMut::new();
         let mut stream_reader = BufReader::new(stream);
 
-        // NOTE: before the length delimiter can be parsed, we will reading from stream one byte at a time,
-        // until the bytes that represent the length delimiter is fully received. This is done mainly to avoid
-        // consuming the bytes that belong to the next message from the TcpStream when the currently processed
-        // message is very small
+        // NOTE: before the length delimiter can be parsed, we will reading from stream one byte at
+        // a time, until the bytes that represent the length delimiter is fully received. This is
+        // done mainly to avoid consuming the bytes that belong to the next message from the
+        // TcpStream when the currently processed message is very small. The cost of doing this is
+        // very high, but as we progress, a better protocol will be devised.
         loop {
             let n_read = stream_reader.read(&mut len_delim_bytes)?;
             msg_bytes.put_slice(&len_delim_bytes[..n_read]);
