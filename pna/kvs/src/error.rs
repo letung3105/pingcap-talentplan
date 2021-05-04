@@ -24,31 +24,38 @@ impl std::fmt::Display for Error {
             ErrorKind::Bincode(err) => write!(f, "Bincode serde error {}", err),
             ErrorKind::ProstEncode(err) => write!(f, "Protobuf serialization error {}", err),
             ErrorKind::ProstDecode(err) => write!(f, "Protobuf deserialization error {}", err),
+            ErrorKind::Sled(err) => write!(f, "Sled engine error {}", err)
         }
     }
 }
 
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {
-        Box::new(ErrorKind::Io(err))
+        Self::new(ErrorKind::Io(err))
     }
 }
 
 impl From<bincode::Error> for Error {
     fn from(err: bincode::Error) -> Self {
-        Box::new(ErrorKind::Bincode(err))
+        Self::new(ErrorKind::Bincode(err))
     }
 }
 
 impl From<prost::EncodeError> for Error {
     fn from(err: prost::EncodeError) -> Self {
-        Box::new(ErrorKind::ProstEncode(err))
+        Self::new(ErrorKind::ProstEncode(err))
     }
 }
 
 impl From<prost::DecodeError> for Error {
     fn from(err: prost::DecodeError) -> Self {
-        Box::new(ErrorKind::ProstDecode(err))
+        Self::new(ErrorKind::ProstDecode(err))
+    }
+}
+
+impl From<sled::Error> for Error {
+    fn from(err: sled::Error) -> Self {
+        Self::new(ErrorKind::Sled(err))
     }
 }
 
@@ -77,4 +84,6 @@ pub enum ErrorKind {
     ProstEncode(prost::EncodeError),
     /// Error propagated from deserialization operations with protocol buffers
     ProstDecode(prost::DecodeError),
+    /// Error propagated from operations with `sled` database
+    Sled(sled::Error),
 }

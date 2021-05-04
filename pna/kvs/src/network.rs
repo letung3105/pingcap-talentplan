@@ -13,6 +13,7 @@ use std::io::{BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 
+use crate::engines::SledKvsEngine;
 use crate::{Error, ErrorKind, KvStore, KvsEngine, KvsEngineVariant, Result};
 
 /// Implementation of a client that can communicate with the system's server
@@ -140,10 +141,10 @@ impl KvsServer {
         P: Into<PathBuf>,
     {
         let data_path = data_path.into();
-        let kvs_engine = Box::new(match engine_variant {
-            KvsEngineVariant::Kvs => KvStore::open(data_path)?,
-            KvsEngineVariant::Sled => todo!(),
-        });
+        let kvs_engine: Box<dyn KvsEngine> = match engine_variant {
+            KvsEngineVariant::Kvs => Box::new(KvStore::open(data_path)?),
+            KvsEngineVariant::Sled => Box::new(SledKvsEngine::open(data_path)?),
+        };
 
         Ok(Self { kvs_engine })
     }
