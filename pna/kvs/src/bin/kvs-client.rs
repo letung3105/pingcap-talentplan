@@ -2,8 +2,6 @@ use kvs::{Error, ErrorKind, KvsClient};
 use std::net::SocketAddr;
 use structopt::StructOpt;
 
-// TODO: check if the flow is correct according to the requirements
-
 fn main() {
     if let Err(err) = run() {
         println!("{}", err);
