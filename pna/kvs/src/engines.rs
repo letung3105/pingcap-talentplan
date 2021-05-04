@@ -332,7 +332,7 @@ impl SledKvsEngine {
     }
 }
 
-// TODO: might need to call flush on overrite write
+// TODO: might need to call flush on every write
 impl KvsEngine for SledKvsEngine {
     fn set(&mut self, key: String, value: String) -> Result<()> {
         self.db.insert(key.as_bytes(), value.as_bytes())?;
