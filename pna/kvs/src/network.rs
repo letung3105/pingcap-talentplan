@@ -91,13 +91,17 @@ impl KvsClient {
         let mut stream = TcpStream::connect(self.server_addr)?;
         stream.write_all(&request_bytes)?;
 
-        let mut len_delim_bytes = [0u8; 10];
+        let mut len_delim_bytes = [0u8; 1];
         let mut msg_bytes = BytesMut::new();
         let mut stream_reader = BufReader::new(stream);
 
+        // NOTE: before the length delimiter can be parsed, we will reading from stream one byte at a time,
+        // until the bytes that represent the length delimiter is fully received. This is done mainly to avoid
+        // consuming the bytes that belong to the next message from the TcpStream when the currently processed
+        // message is very small
         loop {
-            stream_reader.read(&mut len_delim_bytes)?;
-            msg_bytes.put_slice(&len_delim_bytes);
+            let n_read = stream_reader.read(&mut len_delim_bytes)?;
+            msg_bytes.put_slice(&len_delim_bytes[..n_read]);
 
             match prost::decode_length_delimiter(msg_bytes.as_ref()) {
                 Ok(len) => {
@@ -150,7 +154,7 @@ impl KvsServer {
     where
         A: Into<SocketAddr>,
     {
-        let listener = TcpListener::bind(addr.into()).unwrap();
+        let listener = TcpListener::bind(addr.into())?;
         for stream in listener.incoming() {
             if let Ok(mut stream) = stream {
                 if let Err(err) = self.handle_client(stream.try_clone()?) {
@@ -173,8 +177,8 @@ impl KvsServer {
         let mut msg_len_delim = BytesMut::new();
 
         loop {
-            stream_reader.read(&mut len_delim_buf).unwrap();
-            msg_len_delim.put_slice(&len_delim_buf);
+            let n_read = stream_reader.read(&mut len_delim_buf)?;
+            msg_len_delim.put_slice(&len_delim_buf[..n_read]);
 
             match prost::decode_length_delimiter(msg_len_delim.as_ref()) {
                 Ok(len) => {
@@ -182,7 +186,7 @@ impl KvsServer {
                     let n_remaining = len - (msg_len_delim.len() - len_delim_length);
 
                     let mut msg_remaining = vec![0u8; n_remaining];
-                    stream_reader.read_exact(&mut msg_remaining).unwrap();
+                    stream_reader.read_exact(&mut msg_remaining)?;
                     msg_len_delim.put_slice(&msg_remaining);
 
                     let req = KvsRequest::decode(msg_len_delim.split_off(len_delim_length))?;
