@@ -3,7 +3,7 @@
 
 #![deny(missing_docs, missing_debug_implementations)]
 
-// TODO: add loggin library
+// TODO: add logging library
 
 pub mod engines;
 pub mod error;
