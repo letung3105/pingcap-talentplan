@@ -9,7 +9,6 @@ pub mod engines;
 pub mod error;
 pub mod network;
 
-pub use engines::KvStore;
 pub use error::{Error, ErrorKind, Result};
 pub use network::{KvsClient, KvsServer};
 
@@ -25,12 +24,6 @@ pub trait KvsEngine {
 
     /// Removes a key.
     fn remove(&mut self, key: String) -> Result<()>;
-}
-
-impl std::fmt::Debug for dyn KvsEngine {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Key-value store engine")
-    }
 }
 
 /// Different engines that can be used for the key-value store

@@ -13,8 +13,9 @@ use std::io::{BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 
-use crate::engines::SledKvsEngine;
-use crate::{Error, ErrorKind, KvStore, KvsEngine, KvsEngineVariant, Result};
+use crate::engines::kvs::KvStore;
+use crate::engines::sled::SledKvsEngine;
+use crate::{Error, ErrorKind, KvsEngine, KvsEngineVariant, Result};
 
 /// Implementation of a client that can communicate with the system's server
 #[derive(Debug)]
@@ -130,7 +131,7 @@ impl KvsClient {
 
 /// Implementation of a server that listens for client requests, and performs the received commands
 /// on the underlying key-value storage engine
-#[derive(Debug)]
+#[allow(missing_debug_implementations)]
 pub struct KvsServer {
     kvs_engine: Box<dyn KvsEngine>,
 }
