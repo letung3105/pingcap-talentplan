@@ -7,10 +7,11 @@
 
 pub mod engines;
 pub mod error;
-pub mod network;
+pub mod proto;
 
+pub use engines::{KvStore, SledKvsEngine};
 pub use error::{Error, ErrorKind, Result};
-pub use network::{KvsClient, KvsServer};
+pub use proto::{KvsClient, KvsServer};
 
 use std::str::FromStr;
 

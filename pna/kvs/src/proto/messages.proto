@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package kvs.network.proto;
+package kvs.proto.messages;
 
 // Data model for a request to the key-value store
 message KvsRequest {
