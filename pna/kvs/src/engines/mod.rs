@@ -1,6 +1,6 @@
 //! Different implementations of `KvsEngine`
 mod kvs;
-mod sled_kvs;
+mod sled;
 
+pub use self::sled::SledKvsEngine;
 pub use kvs::KvStore;
-pub use sled_kvs::SledKvsEngine;

@@ -24,21 +24,27 @@ impl SledKvsEngine {
 // TODO: might need to call flush on every write
 impl KvsEngine for SledKvsEngine {
     fn set(&mut self, key: String, value: String) -> Result<()> {
-        self.db.insert(key.as_bytes(), value.as_bytes())?;
+        self.db.insert(key, value.as_bytes())?;
+        self.db.flush()?;
         Ok(())
     }
 
     fn get(&mut self, key: String) -> Result<Option<String>> {
-        let value = self.db.get(key.as_bytes())?;
-        // NOTE: since the value is inserted as a string, using unwrap here is ok.
-        let value = value.map(|v| String::from_utf8(v.to_vec()).unwrap());
-        Ok(value)
+        // NOTE: since the value is inserted as a string, using unwrap is ok
+        self.db
+            .get(key.as_bytes())
+            .map(|val| {
+                val.map(|iv| iv.to_vec())
+                    .map(|v| String::from_utf8(v).unwrap())
+            })
+            .map_err(Error::from)
     }
 
     fn remove(&mut self, key: String) -> Result<()> {
-        match self.db.remove(key.as_bytes())? {
-            Some(_) => Ok(()),
-            None => Err(Error::new(ErrorKind::KeyNotFound)),
-        }
+        self.db
+            .remove(key.as_bytes())?
+            .ok_or(Error::new(ErrorKind::KeyNotFound))?;
+        self.db.flush()?;
+        Ok(())
     }
 }
