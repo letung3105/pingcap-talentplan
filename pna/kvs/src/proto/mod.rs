@@ -5,5 +5,5 @@ mod messages {
     include!(concat!(env!("OUT_DIR"), "/kvs.proto.messages.rs"));
 }
 
-pub use client::*;
-pub use server::*;
+pub use client::KvsClient;
+pub use server::KvsServer;
