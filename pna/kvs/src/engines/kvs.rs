@@ -176,12 +176,13 @@ impl WriteContext {
     fn set(&mut self, key: String, val: String) -> Result<()> {
         let prev_index = {
             let mut index = self.index.write().unwrap();
+
             let pos = self.writer.pos;
             let log_entry = LogEntry::Set(key.clone(), val);
             bincode::serialize_into(&mut self.writer, &log_entry)?;
             self.writer.flush()?;
-            let len = self.writer.pos - pos;
 
+            let len = self.writer.pos - pos;
             let log_index = LogIndex {
                 gen: self.gen,
                 pos,
@@ -230,11 +231,8 @@ impl WriteContext {
         let (mut merged_writer, merged_reader) = create_log(self.path.as_ref(), merge_gen)?;
         let (writer, reader) = create_log(self.path.as_ref(), new_gen)?;
 
-        let mut readers = self.r_context.readers.borrow_mut();
-        readers.insert(merge_gen, merged_reader);
-        readers.insert(new_gen, reader);
-
         // Copy data to the merge log and update the index
+        let mut readers = self.r_context.readers.borrow_mut();
         for log_index in index.values_mut() {
             let reader = readers
                 .entry(log_index.gen)
@@ -252,6 +250,8 @@ impl WriteContext {
                 len: log_index.len,
             };
         }
+        readers.insert(merge_gen, merged_reader);
+        readers.insert(new_gen, reader);
         merged_writer.flush()?;
 
         // set merge generation, `ReadContext` in all threads will observe the new value and drop
@@ -269,6 +269,7 @@ impl WriteContext {
         // update writer and log generation
         self.writer = writer;
         self.gen = new_gen;
+        self.garbage = 0;
         Ok(())
     }
 }

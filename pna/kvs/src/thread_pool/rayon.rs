@@ -22,3 +22,4 @@ impl ThreadPool for RayonThreadPool {
         self.pool.spawn(f);
     }
 }
+
