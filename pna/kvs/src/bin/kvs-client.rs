@@ -1,4 +1,4 @@
-use kvs::{Error, ErrorKind, KvsClient};
+use kvs::KvsClient;
 use std::net::SocketAddr;
 use structopt::StructOpt;
 
@@ -9,7 +9,7 @@ fn main() {
     }
 }
 
-fn run() -> kvs::Result<()> {
+fn run() -> Result<()> {
     let opt = ClientCliOpt::from_args();
 
     match opt.sub_cmd {
@@ -21,7 +21,7 @@ fn run() -> kvs::Result<()> {
             let kvs_client = KvsClient::new(addr);
             match kvs_client.get_req(key)? {
                 Some(val) => println!("{}", val),
-                None => println!("{}", Error::new(ErrorKind::KeyNotFound)),
+                None => println!("Key not found"),
             }
         }
         ClientCliSubCommand::Rm { key, addr } => {
@@ -78,4 +78,27 @@ enum ClientCliSubCommand {
         )]
         addr: SocketAddr,
     },
+}
+
+type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug)]
+enum Error {
+    KvsError(kvs::Error),
+}
+
+impl std::error::Error for Error {}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::KvsError(err) => write!(f, "Key-value store error {}", err),
+        }
+    }
+}
+
+impl From<kvs::Error> for Error {
+    fn from(err: kvs::Error) -> Self {
+        Error::KvsError(err)
+    }
 }

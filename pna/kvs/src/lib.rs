@@ -9,10 +9,11 @@ pub mod engines;
 pub mod error;
 pub mod network;
 
-pub use engines::KvStore;
+pub use engines::{KvStore, SledKvsEngine};
 pub use error::{Error, ErrorKind, Result};
 pub use network::{KvsClient, KvsServer};
 
+use std::path::PathBuf;
 use std::str::FromStr;
 
 /// Define the interface of a key-value store
@@ -25,6 +26,19 @@ pub trait KvsEngine {
 
     /// Removes a key.
     fn remove(&mut self, key: String) -> Result<()>;
+}
+
+impl KvsEngine {
+    /// Create a new object that implements the trait `KvsEngine`
+    pub fn open<P>(data_path: P, engine_variant: KvsEngineVariant) -> Result<Box<dyn KvsEngine>>
+    where
+        P: Into<PathBuf>,
+    {
+        Ok(match engine_variant {
+            KvsEngineVariant::Kvs => Box::new(KvStore::open(data_path)?),
+            KvsEngineVariant::Sled => Box::new(SledKvsEngine::open(data_path)?),
+        })
+    }
 }
 
 impl std::fmt::Debug for dyn KvsEngine {
