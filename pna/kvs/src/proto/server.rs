@@ -21,17 +21,8 @@ pub struct KvsServer {
 
 impl KvsServer {
     /// Create a new key-value store client.
-    pub fn new<P>(engine_variant: KvsEngineVariant, data_path: P) -> Result<Self>
-    where
-        P: Into<PathBuf>,
-    {
-        let data_path = data_path.into();
-        let kvs_engine: Box<dyn KvsEngine> = match engine_variant {
-            KvsEngineVariant::Kvs => Box::new(KvStore::open(data_path)?),
-            KvsEngineVariant::Sled => Box::new(SledKvsEngine::open(data_path)?),
-        };
-
-        Ok(Self { kvs_engine })
+    pub fn new(kvs_engine: Box<dyn KvsEngine>) -> Self {
+        Self { kvs_engine }
     }
 
     /// Starting accepting requests on the given IP address and modify the key-value store
