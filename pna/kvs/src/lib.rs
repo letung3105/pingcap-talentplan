@@ -50,12 +50,22 @@ impl std::fmt::Debug for dyn KvsEngine {
 }
 
 /// Different engines that can be used for the key-value store
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KvsEngineVariant {
     /// Default engine provided by the library
     Kvs,
     /// Uses the in-memory key-value store `sled`
     Sled,
+}
+
+impl KvsEngineVariant {
+    /// Get the string representation of the key-value store engine variant
+    pub fn as_str(&self) -> &'static str {
+        match *self {
+            Self::Kvs => "kvs",
+            Self::Sled => "sled",
+        }
+    }
 }
 
 impl FromStr for KvsEngineVariant {

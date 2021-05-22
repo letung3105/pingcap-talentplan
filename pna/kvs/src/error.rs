@@ -114,6 +114,8 @@ pub enum ErrorKind {
     InvalidNetworkMessage,
     /// Wrong engine's name provided when constructing a key-value store
     UnsupportedKvsEngine,
+    /// Provided engine's name is different from the one used in the data directory
+    MismatchedKvsEngine,
 }
 
 impl ErrorKind {
@@ -124,6 +126,7 @@ impl ErrorKind {
             Self::CorruptedIndex => "Corrupted in-memory index",
             Self::InvalidNetworkMessage => "Received an invalid network message",
             Self::UnsupportedKvsEngine => "Unsupported key-value store engine",
+            Self::MismatchedKvsEngine => "Mismatched key-value store engine",
         }
     }
 }

@@ -7,7 +7,8 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use crate::{Error, ErrorKind, KvsEngine, Result};
+use crate::engines::KVS_ENGINE_VARIANT_FILE;
+use crate::{Error, ErrorKind, KvsEngine, KvsEngineVariant, Result};
 
 const GARBAGE_THRESHOLD: u64 = 4 * 1024 * 1024;
 
@@ -62,6 +63,10 @@ impl KvStore {
         P: Into<PathBuf>,
     {
         let active_path = path.into();
+
+        let variant_path = active_path.join(KVS_ENGINE_VARIANT_FILE);
+        fs::write(variant_path, KvsEngineVariant::Kvs.as_str())?;
+
         let prev_epochs = previous_epochs(&active_path)?;
         let active_epoch = prev_epochs.last().map(|&e| e + 1).unwrap_or_default();
 
