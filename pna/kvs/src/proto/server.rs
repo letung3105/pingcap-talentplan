@@ -4,13 +4,11 @@ use bytes::{BufMut, BytesMut};
 use prost::Message;
 use std::io::{BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::path::PathBuf;
 
-use crate::engines::{KvStore,SledKvsEngine};
 use crate::proto::messages::kvs_request::KvsRequestKind;
 use crate::proto::messages::kvs_response::ResponseResult;
 use crate::proto::messages::{KvsRequest, KvsResponse};
-use crate::{Error, ErrorKind, KvsEngine, KvsEngineVariant, Result};
+use crate::{Error, ErrorKind, KvsEngine, Result};
 
 /// Implementation of a server that listens for client requests, and performs the received commands
 /// on the underlying key-value storage engine
@@ -20,7 +18,7 @@ pub struct KvsServer {
 }
 
 impl KvsServer {
-    /// Create a new key-value store client.
+    /// Create a new key-value store server that uses the given engine
     pub fn new(kvs_engine: Box<dyn KvsEngine>) -> Self {
         Self { kvs_engine }
     }
@@ -35,7 +33,6 @@ impl KvsServer {
         for stream in listener.incoming() {
             if let Ok(mut stream) = stream {
                 if let Err(err) = self.handle_client(stream.try_clone()?) {
-                    eprintln!("Could not handle client {}", err);
                     let res = KvsResponse {
                         response_result: Some(ResponseResult::ErrorMessage(err.to_string())),
                     };
@@ -73,7 +70,7 @@ impl KvsServer {
                         }
                         Some(KvsRequestKind::Get) => return self.handle_get(stream, req.key),
                         Some(KvsRequestKind::Remove) => return self.handle_remove(stream, req.key),
-                        None => return Err(Error::new(ErrorKind::InvalidKvsRequest)),
+                        None => return Err(Error::from(ErrorKind::InvalidNetworkMessage)),
                     }
                 }
                 Err(err) => {

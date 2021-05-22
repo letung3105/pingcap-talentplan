@@ -25,7 +25,7 @@ impl KvsClient {
     }
 
     /// Send set command request to the key-val store's server
-    pub fn set_req(&self, key: String, value: String) -> Result<()> {
+    pub fn set(&self, key: String, value: String) -> Result<()> {
         let req = KvsRequest {
             kind: KvsRequestKind::Set as i32,
             key,
@@ -35,15 +35,15 @@ impl KvsClient {
         let res = self.make_request(req)?;
         match res.response_result {
             Some(result) => match result {
-                ResponseResult::ErrorMessage(msg) => Err(Error::new(ErrorKind::ServerError(msg))),
-                _ => Err(Error::new(ErrorKind::InvalidKvsResponse)),
+                ResponseResult::ErrorMessage(msg) => Err(Error::from_remote(msg)),
+                _ => Err(Error::from(ErrorKind::InvalidNetworkMessage)),
             },
             None => Ok(()),
         }
     }
 
     /// Send get command request to the key-val store's server
-    pub fn get_req(&self, key: String) -> Result<Option<String>> {
+    pub fn get(&self, key: String) -> Result<Option<String>> {
         let req = KvsRequest {
             kind: KvsRequestKind::Get as i32,
             key,
@@ -53,7 +53,7 @@ impl KvsClient {
         let res = self.make_request(req)?;
         match res.response_result {
             Some(result) => match result {
-                ResponseResult::ErrorMessage(msg) => Err(Error::new(ErrorKind::ServerError(msg))),
+                ResponseResult::ErrorMessage(msg) => Err(Error::from_remote(msg)),
                 ResponseResult::GetCommandValue(value) => Ok(Some(value)),
             },
             None => Ok(None),
@@ -61,7 +61,7 @@ impl KvsClient {
     }
 
     /// Send remove command request to the key-val store's server
-    pub fn remove_req(&self, key: String) -> Result<()> {
+    pub fn remove(&self, key: String) -> Result<()> {
         let req = KvsRequest {
             kind: KvsRequestKind::Remove as i32,
             key,
@@ -71,8 +71,8 @@ impl KvsClient {
         let res = self.make_request(req)?;
         match res.response_result {
             Some(result) => match result {
-                ResponseResult::ErrorMessage(msg) => Err(Error::new(ErrorKind::ServerError(msg))),
-                _ => Err(Error::new(ErrorKind::InvalidKvsResponse)),
+                ResponseResult::ErrorMessage(msg) => Err(Error::from_remote(msg)),
+                _ => Err(Error::from(ErrorKind::InvalidNetworkMessage)),
             },
             None => Ok(()),
         }

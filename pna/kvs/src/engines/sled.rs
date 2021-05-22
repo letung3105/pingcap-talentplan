@@ -21,7 +21,6 @@ impl SledKvsEngine {
     }
 }
 
-// TODO: might need to call flush on every write
 impl KvsEngine for SledKvsEngine {
     fn set(&mut self, key: String, value: String) -> Result<()> {
         self.db.insert(key, value.as_bytes())?;
@@ -43,7 +42,7 @@ impl KvsEngine for SledKvsEngine {
     fn remove(&mut self, key: String) -> Result<()> {
         self.db
             .remove(key.as_bytes())?
-            .ok_or(Error::new(ErrorKind::KeyNotFound))?;
+            .ok_or(Error::from(ErrorKind::KeyNotFound))?;
         self.db.flush()?;
         Ok(())
     }

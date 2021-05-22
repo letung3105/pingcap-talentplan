@@ -28,16 +28,18 @@ pub trait KvsEngine {
     fn remove(&mut self, key: String) -> Result<()>;
 }
 
-impl KvsEngine {
+impl dyn KvsEngine {
     /// Create a new object that implements the trait `KvsEngine`
-    pub fn open<P>(data_path: P, engine_variant: KvsEngineVariant) -> Result<Box<dyn KvsEngine>>
+    pub fn open<P>(path: P, engine_variant: KvsEngineVariant) -> Result<Box<dyn KvsEngine>>
     where
         P: Into<PathBuf>,
     {
-        Ok(match engine_variant {
-            KvsEngineVariant::Kvs => Box::new(KvStore::open(data_path)?),
-            KvsEngineVariant::Sled => Box::new(SledKvsEngine::open(data_path)?),
-        })
+        let kvs_engine: Box<dyn KvsEngine> = match engine_variant {
+            KvsEngineVariant::Kvs => Box::new(KvStore::open(path)?),
+            KvsEngineVariant::Sled => Box::new(SledKvsEngine::open(path)?),
+        };
+
+        Ok(kvs_engine)
     }
 }
 
@@ -59,12 +61,12 @@ pub enum KvsEngineVariant {
 impl FromStr for KvsEngineVariant {
     type Err = Error;
 
-    fn from_str(s: &str) -> Result<Self> {
+    fn from_str(s: &str) -> Result<KvsEngineVariant> {
         let name = s.to_lowercase();
         match name.as_str() {
             "kvs" => Ok(Self::Kvs),
             "sled" => Ok(Self::Sled),
-            _ => Err(Error::new(ErrorKind::InvalidKvsEngineVariant)),
+            _ => Err(Error::from(ErrorKind::UnsupportedKvsEngine)),
         }
     }
 }

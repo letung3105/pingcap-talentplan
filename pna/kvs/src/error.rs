@@ -1,91 +1,129 @@
 //! Errors for operations on the key-value store
 
-// TODO: Separate some error kinds to a new error type
-
-/// Library result type
+/// Library result
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Library error type
-pub type Error = Box<ErrorKind>;
+/// Library error
+#[derive(Debug)]
+pub struct Error {
+    repr: Repr,
+}
+
+#[derive(Debug)]
+enum Repr {
+    /// Specific error with no additional messages
+    Simple(ErrorKind),
+    /// Error message returned from the remote server
+    RemoteMessage(String),
+
+    /// I/O error
+    Io(std::io::Error),
+    /// Sled error
+    Sled(sled::Error),
+    /// Bincode error
+    Bincode(bincode::Error),
+    /// Prost serialization error
+    ProstEncode(prost::EncodeError),
+    /// Prost deserialization error
+    ProstDecode(prost::DecodeError),
+}
+
+impl Error {
+    /// Create an error from the error message that was received from a remote service
+    pub fn from_remote(msg: String) -> Self {
+        Self {
+            repr: Repr::RemoteMessage(msg),
+        }
+    }
+}
+
+impl From<ErrorKind> for Error {
+    fn from(kind: ErrorKind) -> Self {
+        Self {
+            repr: Repr::Simple(kind),
+        }
+    }
+}
 
 impl std::error::Error for Error {}
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.as_ref() {
-            ErrorKind::InvalidLogEntry => write!(f, "Invalid command"),
-            ErrorKind::InvalidLogIndex => write!(f, "Invalid log epoch"),
-            ErrorKind::InvalidKvsEngineVariant => {
-                write!(f, "Could not parse key-value store engine variant")
-            }
-            ErrorKind::InvalidKvsRequest => write!(f, "Invalid request from the client"),
-            ErrorKind::InvalidKvsResponse => write!(f, "Invalid response from the server"),
-            ErrorKind::KeyNotFound => write!(f, "Key not found"),
-            ErrorKind::ServerError(msg) => write!(f, "Server-side error occurred {}", msg),
-            ErrorKind::Io(err) => write!(f, "I/O error {}", err),
-            ErrorKind::Bincode(err) => write!(f, "Bincode serde error {}", err),
-            ErrorKind::ProstEncode(err) => write!(f, "Protobuf serialization error {}", err),
-            ErrorKind::ProstDecode(err) => write!(f, "Protobuf deserialization error {}", err),
-            ErrorKind::Sled(err) => write!(f, "Sled engine error {}", err)
+        match self.repr {
+            Repr::Simple(ref kind) => write!(f, "{}", kind.as_str()),
+            Repr::RemoteMessage(ref msg) => write!(f, "{} (error from remote)", msg),
+            Repr::Io(ref err) => write!(f, "{} (i/o error)", err),
+            Repr::Sled(ref err) => write!(f, "{} (sled error)", err),
+            Repr::Bincode(ref err) => write!(f, "{} (bincode (de)serialization error)", err),
+            Repr::ProstEncode(ref err) => write!(f, "{} (protobuf serialization error)", err),
+            Repr::ProstDecode(ref err) => write!(f, "{} (protobuf deserialization error(", err),
         }
     }
 }
 
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {
-        Self::new(ErrorKind::Io(err))
-    }
-}
-
-impl From<bincode::Error> for Error {
-    fn from(err: bincode::Error) -> Self {
-        Self::new(ErrorKind::Bincode(err))
-    }
-}
-
-impl From<prost::EncodeError> for Error {
-    fn from(err: prost::EncodeError) -> Self {
-        Self::new(ErrorKind::ProstEncode(err))
-    }
-}
-
-impl From<prost::DecodeError> for Error {
-    fn from(err: prost::DecodeError) -> Self {
-        Self::new(ErrorKind::ProstDecode(err))
+        Self {
+            repr: Repr::Io(err),
+        }
     }
 }
 
 impl From<sled::Error> for Error {
     fn from(err: sled::Error) -> Self {
-        Self::new(ErrorKind::Sled(err))
+        Self {
+            repr: Repr::Sled(err),
+        }
     }
 }
 
-/// All types of error that can occur
+impl From<bincode::Error> for Error {
+    fn from(err: bincode::Error) -> Self {
+        Self {
+            repr: Repr::Bincode(err),
+        }
+    }
+}
+
+impl From<prost::EncodeError> for Error {
+    fn from(err: prost::EncodeError) -> Self {
+        Self {
+            repr: Repr::ProstEncode(err),
+        }
+    }
+}
+
+impl From<prost::DecodeError> for Error {
+    fn from(err: prost::DecodeError) -> Self {
+        Self {
+            repr: Repr::ProstDecode(err),
+        }
+    }
+}
+
+/// Types of error
 #[derive(Debug)]
 pub enum ErrorKind {
-    /// Error occurs when encounter a command type that is not supposed to be there
-    InvalidLogEntry,
-    /// Error occurs when the index points the a non-existent item
-    InvalidLogIndex,
-    /// Error occurs when trying to parse a `KvsEngineVariant`
-    InvalidKvsEngineVariant,
-    /// Error for when receiving an unexpected request from the client
-    InvalidKvsRequest,
-    /// Error for when receiving an unexpected reponse from the server
-    InvalidKvsResponse,
-    /// Error occurs when performing operations on non-existent key
+    /// Operation on a non-existent key
     KeyNotFound,
-    /// Error occurs on the server that is sent back to the client
-    ServerError(String),
-    /// Error propagated from I/O operations
-    Io(std::io::Error),
-    /// Error propagated from serialization/deserialization operations with bincode
-    Bincode(bincode::Error),
-    /// Error propagated from serialization operations with protocol buffers
-    ProstEncode(prost::EncodeError),
-    /// Error propagated from deserialization operations with protocol buffers
-    ProstDecode(prost::DecodeError),
-    /// Error propagated from operations with `sled` database
-    Sled(sled::Error),
+    /// Faulty on-disk log
+    CorruptedLog,
+    /// Faulty in-memory index
+    CorruptedIndex,
+    /// An unexpected message from the network is received
+    InvalidNetworkMessage,
+    /// Wrong engine's name provided when constructing a key-value store
+    UnsupportedKvsEngine,
+}
+
+impl ErrorKind {
+    pub(crate) fn as_str(&self) -> &'static str {
+        match *self {
+            Self::KeyNotFound => "Key not found",
+            Self::CorruptedLog => "Corrupted on-disk log",
+            Self::CorruptedIndex => "Corrupted in-memory index",
+            Self::InvalidNetworkMessage => "Received an invalid network message",
+            Self::UnsupportedKvsEngine => "Unsupported key-value store engine",
+        }
+    }
 }

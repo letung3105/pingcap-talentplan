@@ -4,29 +4,29 @@ use structopt::StructOpt;
 
 fn main() {
     if let Err(err) = run() {
-        println!("{}", err);
+        eprintln!("{}", err);
         std::process::exit(1);
     }
 }
 
-fn run() -> Result<()> {
+fn run() -> kvs::Result<()> {
     let opt = ClientCliOpt::from_args();
 
     match opt.sub_cmd {
         ClientCliSubCommand::Set { key, val, addr } => {
             let kvs_client = KvsClient::new(addr);
-            kvs_client.set_req(key, val)?;
+            kvs_client.set(key, val)?;
         }
         ClientCliSubCommand::Get { key, addr } => {
             let kvs_client = KvsClient::new(addr);
-            match kvs_client.get_req(key)? {
+            match kvs_client.get(key)? {
                 Some(val) => println!("{}", val),
                 None => println!("Key not found"),
             }
         }
         ClientCliSubCommand::Rm { key, addr } => {
             let kvs_client = KvsClient::new(addr);
-            kvs_client.remove_req(key)?;
+            kvs_client.remove(key)?;
         }
     }
 
@@ -78,27 +78,4 @@ enum ClientCliSubCommand {
         )]
         addr: SocketAddr,
     },
-}
-
-type Result<T> = std::result::Result<T, Error>;
-
-#[derive(Debug)]
-enum Error {
-    KvsError(kvs::Error),
-}
-
-impl std::error::Error for Error {}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::KvsError(err) => write!(f, "Key-value store error {}", err),
-        }
-    }
-}
-
-impl From<kvs::Error> for Error {
-    fn from(err: kvs::Error) -> Self {
-        Error::KvsError(err)
-    }
 }

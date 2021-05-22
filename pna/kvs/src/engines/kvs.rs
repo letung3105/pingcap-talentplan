@@ -119,7 +119,7 @@ impl KvStore {
                         length: index.length,
                     };
                 }
-                None => return Err(Error::new(ErrorKind::InvalidLogIndex)),
+                None => return Err(Error::from(ErrorKind::CorruptedIndex)),
             }
         }
         merged_writer.flush()?;
@@ -187,10 +187,10 @@ impl KvsEngine for KvStore {
                     reader.seek(SeekFrom::Start(index.offset))?;
                     match bincode::deserialize_from(reader)? {
                         KvsLogEntry::Set(_, value) => Ok(Some(value)),
-                        _ => Err(Error::new(ErrorKind::InvalidLogEntry)),
+                        _ => Err(Error::from(ErrorKind::CorruptedLog)),
                     }
                 }
-                None => Err(Error::new(ErrorKind::InvalidLogIndex)),
+                None => Err(Error::from(ErrorKind::CorruptedIndex)),
             },
             None => Ok(None),
         }
@@ -209,7 +209,7 @@ impl KvsEngine for KvStore {
             the in-memory index.
         */
         if !self.index_map.contains_key(&key) {
-            return Err(Error::new(ErrorKind::KeyNotFound));
+            return Err(Error::from(ErrorKind::KeyNotFound));
         }
 
         let command = KvsLogEntry::Rm(key.clone());
