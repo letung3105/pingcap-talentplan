@@ -17,7 +17,7 @@ pub use proto::{KvsClient, KvsServer};
 use std::str::FromStr;
 
 /// The file that contains the name of key-value store engine used in the directory
-pub const KVS_ENGINE_VARIANT_FILENAME: &str = "KVS_ENGINE_VARIANT";
+pub const KVS_ENGINE_BACKEND_FILENAME: &str = "ENGINE_BACKEND";
 
 /// Define the interface of a key-value store
 pub trait KvsEngine {
@@ -39,15 +39,15 @@ impl std::fmt::Debug for dyn KvsEngine {
 
 /// Different engines that can be used for the key-value store
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KvsBackend {
+pub enum KvsEngineBackend {
     /// Default engine provided by the library
     Kvs,
     /// Uses the in-memory key-value store `sled`
     Sled,
 }
 
-impl KvsBackend {
-    /// Get the string representation of the key-value store engine variant
+impl KvsEngineBackend {
+    /// Get the string representation of the key-value store engine backend
     pub fn as_str(&self) -> &'static str {
         match *self {
             Self::Kvs => "kvs",
@@ -56,15 +56,15 @@ impl KvsBackend {
     }
 }
 
-impl FromStr for KvsBackend {
+impl FromStr for KvsEngineBackend {
     type Err = Error;
 
-    fn from_str(s: &str) -> Result<KvsBackend> {
+    fn from_str(s: &str) -> Result<KvsEngineBackend> {
         let name = s.to_lowercase();
         match name.as_str() {
             "kvs" => Ok(Self::Kvs),
             "sled" => Ok(Self::Sled),
-            _ => Err(Error::from(ErrorKind::UnsupportedKvsEngine)),
+            _ => Err(Error::from(ErrorKind::UnsupportedKvsEngineBackend)),
         }
     }
 }

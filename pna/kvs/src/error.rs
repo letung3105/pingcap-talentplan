@@ -112,10 +112,10 @@ pub enum ErrorKind {
     CorruptedIndex,
     /// An unexpected message from the network is received
     InvalidNetworkMessage,
-    /// Wrong engine's name provided when constructing a key-value store
-    UnsupportedKvsEngine,
-    /// Provided engine's name is different from the one used in the data directory
-    MismatchedKvsEngine,
+    /// Wrong engine backend provided when constructing a key-value store
+    UnsupportedKvsEngineBackend,
+    /// Provided engine backed is different from the one used in the data directory
+    MismatchedKvsEngineBackend,
 }
 
 impl ErrorKind {
@@ -125,8 +125,8 @@ impl ErrorKind {
             Self::CorruptedLog => "Corrupted on-disk log",
             Self::CorruptedIndex => "Corrupted in-memory index",
             Self::InvalidNetworkMessage => "Received an invalid network message",
-            Self::UnsupportedKvsEngine => "Unsupported key-value store engine",
-            Self::MismatchedKvsEngine => "Mismatched key-value store engine",
+            Self::UnsupportedKvsEngineBackend => "Unsupported key-value store engine backend",
+            Self::MismatchedKvsEngineBackend => "Mismatched key-value store engine backend",
         }
     }
 }

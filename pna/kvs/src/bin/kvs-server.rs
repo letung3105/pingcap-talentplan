@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate slog;
 
-use kvs::{Error, ErrorKind, KvsBackend, KvsServer, Result, KVS_ENGINE_VARIANT_FILENAME};
+use kvs::{Error, ErrorKind, KvsEngineBackend, KvsServer, Result, KVS_ENGINE_BACKEND_FILENAME};
 use slog::Drain;
 use std::env;
 use std::fs;
@@ -22,17 +22,17 @@ fn run() -> Result<()> {
 
     // check the directory for the previously used key-value store engine, an error is returned if
     // previously used engine is different than the provided one
-    let kvs_variant_path = current_dir.join(KVS_ENGINE_VARIANT_FILENAME);
-    let variant = match fs::read_to_string(kvs_variant_path) {
-        Ok(prev_variant_str) => {
-            let prev_variant = KvsBackend::from_str(&prev_variant_str)?;
-            let variant = opt.engine_variant.unwrap_or(prev_variant);
-            if variant != prev_variant {
-                return Err(Error::from(ErrorKind::MismatchedKvsEngine));
+    let engine_backend_path = current_dir.join(KVS_ENGINE_BACKEND_FILENAME);
+    let engine_backend = match fs::read_to_string(engine_backend_path) {
+        Ok(prev_engine_backend) => {
+            let prev_engine_backend = KvsEngineBackend::from_str(&prev_engine_backend)?;
+            let engine_backend = opt.engine_backend.unwrap_or(prev_engine_backend);
+            if engine_backend != prev_engine_backend {
+                return Err(Error::from(ErrorKind::MismatchedKvsEngineBackend));
             }
-            variant
+            engine_backend
         }
-        Err(_) => opt.engine_variant.unwrap_or(KvsBackend::Kvs),
+        Err(_) => opt.engine_backend.unwrap_or(KvsEngineBackend::Kvs),
     };
 
     let decorator = slog_term::TermDecorator::new().stderr().build();
@@ -41,10 +41,10 @@ fn run() -> Result<()> {
     let logger = slog::Logger::root(
         drain,
         o!("version" => env!("CARGO_PKG_VERSION"),
-           "engine" => variant.as_str()),
+           "engine" => engine_backend.as_str()),
     );
 
-    let kvs_engine = kvs::open(current_dir, variant)?;
+    let kvs_engine = kvs::open(current_dir, engine_backend)?;
     let mut kvs_server = KvsServer::new(kvs_engine, Some(logger));
     kvs_server.serve(opt.server_addr)?;
     Ok(())
@@ -63,5 +63,5 @@ struct ServerCliOpt {
         long = "engine",
         about = "Name of the engine that is used for the key-value store"
     )]
-    engine_variant: Option<KvsBackend>,
+    engine_backend: Option<KvsEngineBackend>,
 }
