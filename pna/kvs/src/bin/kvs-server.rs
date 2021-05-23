@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate slog;
 
-use kvs::{Error, ErrorKind, KvsEngineVariant, KvsServer, Result, KVS_ENGINE_VARIANT_FILE};
+use kvs::{Error, ErrorKind, KvsBackend, KvsServer, Result, KVS_ENGINE_VARIANT_FILENAME};
 use slog::Drain;
 use std::env;
 use std::fs;
@@ -22,17 +22,17 @@ fn run() -> Result<()> {
 
     // check the directory for the previously used key-value store engine, an error is returned if
     // previously used engine is different than the provided one
-    let kvs_variant_path = current_dir.join(KVS_ENGINE_VARIANT_FILE);
+    let kvs_variant_path = current_dir.join(KVS_ENGINE_VARIANT_FILENAME);
     let variant = match fs::read_to_string(kvs_variant_path) {
         Ok(prev_variant_str) => {
-            let prev_variant = KvsEngineVariant::from_str(&prev_variant_str)?;
+            let prev_variant = KvsBackend::from_str(&prev_variant_str)?;
             let variant = opt.engine_variant.unwrap_or(prev_variant);
             if variant != prev_variant {
                 return Err(Error::from(ErrorKind::MismatchedKvsEngine));
             }
             variant
         }
-        Err(_) => opt.engine_variant.unwrap_or(KvsEngineVariant::Kvs),
+        Err(_) => opt.engine_variant.unwrap_or(KvsBackend::Kvs),
     };
 
     let decorator = slog_term::TermDecorator::new().stderr().build();
@@ -63,5 +63,5 @@ struct ServerCliOpt {
         long = "engine",
         about = "Name of the engine that is used for the key-value store"
     )]
-    engine_variant: Option<KvsEngineVariant>,
+    engine_variant: Option<KvsBackend>,
 }
