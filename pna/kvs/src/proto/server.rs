@@ -1,26 +1,37 @@
 //! Providing network API for interacting with the key-value store implementation
 
-use bytes::{BufMut, BytesMut};
-use prost::Message;
-use std::io::{BufReader, Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
-
 use crate::proto::messages::kvs_request::KvsRequestKind;
 use crate::proto::messages::kvs_response::ResponseResult;
 use crate::proto::messages::{KvsRequest, KvsResponse};
 use crate::{Error, ErrorKind, KvsEngine, Result};
+use bytes::{BufMut, BytesMut};
+use prost::Message;
+use slog::Drain;
+use std::io::{BufReader, Read, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 
 /// Implementation of a server that listens for client requests, and performs the received commands
 /// on the underlying key-value storage engine
 #[allow(missing_debug_implementations)]
 pub struct KvsServer {
+    logger: slog::Logger,
     kvs_engine: Box<dyn KvsEngine>,
 }
 
 impl KvsServer {
     /// Create a new key-value store server that uses the given engine
-    pub fn new(kvs_engine: Box<dyn KvsEngine>) -> Self {
-        Self { kvs_engine }
+    pub fn new<L>(kvs_engine: Box<dyn KvsEngine>, logger: L) -> Self
+    where
+        L: Into<Option<slog::Logger>>,
+    {
+        let logger = logger.into().unwrap_or({
+            let decorator = slog_term::TermDecorator::new().build();
+            let drain = slog_term::FullFormat::new(decorator).build().fuse();
+            let drain = slog_async::Async::new(drain).build().fuse();
+            slog::Logger::root(drain, o!())
+        });
+
+        Self { logger, kvs_engine }
     }
 
     /// Starting accepting requests on the given IP address and modify the key-value store
@@ -29,7 +40,13 @@ impl KvsServer {
     where
         A: Into<SocketAddr>,
     {
-        let listener = TcpListener::bind(addr.into())?;
+        let addr = addr.into();
+        let logger = self.logger.new(o!("addr" => addr.to_string()));
+
+        info!(logger, "Starting key-value store server");
+        let listener = TcpListener::bind(addr)?;
+        info!(logger, "Accepting client requests");
+
         for stream in listener.incoming() {
             if let Ok(mut stream) = stream {
                 if let Err(err) = self.handle_client(stream.try_clone()?) {

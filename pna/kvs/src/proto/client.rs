@@ -1,12 +1,11 @@
-use bytes::{BufMut, BytesMut};
-use prost::Message;
-use std::io::{BufReader, Read, Write};
-use std::net::{SocketAddr, TcpStream};
-
 use crate::proto::messages::kvs_request::KvsRequestKind;
 use crate::proto::messages::kvs_response::ResponseResult;
 use crate::proto::messages::{KvsRequest, KvsResponse};
 use crate::{Error, ErrorKind, Result};
+use bytes::{BufMut, BytesMut};
+use prost::Message;
+use std::io::{BufReader, Read, Write};
+use std::net::{SocketAddr, TcpStream};
 
 /// Implementation of a client that can communicate with the system's server
 #[derive(Debug)]

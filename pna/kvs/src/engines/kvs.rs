@@ -1,14 +1,12 @@
 //! An `KvsEngine` that uses log-structure file system.
 
+use crate::{Error, ErrorKind, KvsEngine, KvsEngineVariant, Result, KVS_ENGINE_VARIANT_FILE};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-
-use crate::engines::KVS_ENGINE_VARIANT_FILE;
-use crate::{Error, ErrorKind, KvsEngine, KvsEngineVariant, Result};
 
 const GARBAGE_THRESHOLD: u64 = 4 * 1024 * 1024;
 
@@ -22,7 +20,8 @@ const GARBAGE_THRESHOLD: u64 = 4 * 1024 * 1024;
 /// # Usages
 ///
 /// ```
-/// use kvs::{KvStore, Result};
+/// use kvs::{KvsEngine, Result};
+/// use kvs::engines::KvStore;
 /// use tempfile::TempDir;
 ///
 /// fn main() -> Result<()> {

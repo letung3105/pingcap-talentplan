@@ -1,10 +1,8 @@
 //! An `KvsEngine` that proxies method calls to the underlying `sled` key-value store.
 
+use crate::{Error, ErrorKind, KvsEngine, KvsEngineVariant, Result, KVS_ENGINE_VARIANT_FILE};
 use std::fs;
 use std::path::PathBuf;
-
-use crate::engines::KVS_ENGINE_VARIANT_FILE;
-use crate::{Error, ErrorKind, KvsEngine, KvsEngineVariant, Result};
 
 /// A key-value store that uses sled as the underlying data storage engine
 #[derive(Debug)]

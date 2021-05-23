@@ -3,7 +3,8 @@
 
 #![deny(missing_docs, missing_debug_implementations)]
 
-// TODO: add logging library
+#[macro_use]
+extern crate slog;
 
 pub mod engines;
 pub mod error;
@@ -14,6 +15,9 @@ pub use error::{Error, ErrorKind, Result};
 pub use proto::{KvsClient, KvsServer};
 
 use std::str::FromStr;
+
+/// The file that contains the name of key-value store engine used in the directory
+pub const KVS_ENGINE_VARIANT_FILE: &str = "KVS_ENGINE_VARIANT";
 
 /// Define the interface of a key-value store
 pub trait KvsEngine {
