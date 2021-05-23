@@ -41,12 +41,10 @@ impl KvsServer {
         A: Into<SocketAddr>,
     {
         let addr = addr.into();
-        let logger = self.logger.new(o!("addr" => addr.to_string()));
+        self.logger = self.logger.new(o!("addr" => addr.to_string()));
 
-        info!(logger, "Starting key-value store server");
+        info!(self.logger, "Starting key-value store server");
         let listener = TcpListener::bind(addr)?;
-        info!(logger, "Accepting client requests");
-
         for stream in listener.incoming() {
             if let Ok(mut stream) = stream {
                 if let Err(err) = self.handle_client(stream.try_clone()?) {
@@ -66,6 +64,7 @@ impl KvsServer {
         let mut stream_reader = BufReader::new(stream.try_clone()?);
         let mut len_delim_buf = [0u8; 10];
         let mut msg_len_delim = BytesMut::new();
+        let peer_addr = stream.peer_addr()?;
 
         loop {
             let n_read = stream_reader.read(&mut len_delim_buf)?;
@@ -81,14 +80,21 @@ impl KvsServer {
                     msg_len_delim.put_slice(&msg_remaining);
 
                     let req = KvsRequest::decode(msg_len_delim.split_off(len_delim_length))?;
-                    match KvsRequestKind::from_i32(req.kind) {
-                        Some(KvsRequestKind::Set) => {
-                            return self.handle_set(stream, req.key, req.value)
-                        }
-                        Some(KvsRequestKind::Get) => return self.handle_get(stream, req.key),
-                        Some(KvsRequestKind::Remove) => return self.handle_remove(stream, req.key),
+                    let req_kind = KvsRequestKind::from_i32(req.kind);
+                    let res = match req_kind {
+                        Some(KvsRequestKind::Set) => self.handle_set(stream, req.key, req.value),
+                        Some(KvsRequestKind::Get) => self.handle_get(stream, req.key),
+                        Some(KvsRequestKind::Remove) => self.handle_remove(stream, req.key),
                         None => return Err(Error::from(ErrorKind::InvalidNetworkMessage)),
+                    };
+
+                    if let Some(req_kind) = req_kind {
+                        info!(self.logger,
+                            "Handled client request";
+                            "peer_addr" => peer_addr.to_string(),
+                            "request" => req_kind.as_str());
                     }
+                    return res;
                 }
                 Err(err) => {
                     if msg_len_delim.len() > 10 {

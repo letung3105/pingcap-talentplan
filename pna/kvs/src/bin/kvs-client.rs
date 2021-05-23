@@ -11,7 +11,6 @@ fn main() {
 
 fn run() -> kvs::Result<()> {
     let opt = ClientCliOpt::from_args();
-
     match opt.sub_cmd {
         ClientCliSubCommand::Set { key, val, addr } => {
             let kvs_client = KvsClient::new(addr);
@@ -29,7 +28,6 @@ fn run() -> kvs::Result<()> {
             kvs_client.remove(key)?;
         }
     }
-
     Ok(())
 }
 

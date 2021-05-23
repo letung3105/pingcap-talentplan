@@ -1,6 +1,7 @@
 //! An `KvsEngine` that uses log-structure file system.
 
-use crate::{Error, ErrorKind, KvsEngine, KvsEngineBackend, Result, KVS_ENGINE_BACKEND_FILENAME};
+use crate::engines::{KvsEngineBackend, KVS_ENGINE_BACKEND_FILENAME};
+use crate::{Error, ErrorKind, KvsEngine, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::OsStr;
