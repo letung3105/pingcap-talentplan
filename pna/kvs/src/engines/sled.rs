@@ -21,7 +21,7 @@ impl SledKvsEngine {
         let backend_path = path.join(KVS_ENGINE_BACKEND_FILENAME);
         fs::write(backend_path, KvsEngineBackend::Sled.as_str())?;
 
-        let db = sled::open(path)?;
+        let db = sled::Config::default().path(path).open()?;
         Ok(Self { db })
     }
 }
