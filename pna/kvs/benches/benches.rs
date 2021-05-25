@@ -22,30 +22,68 @@ mod engines {
 
     pub fn write(c: &mut Criterion) {
         let mut rng = StdRng::from_seed([0u8; 32]);
-        let kv_pairs = prebuilt_kv_pairs(&mut rng, 100, MAX_KEY_SIZE, MAX_VAL_SIZE);
+        let kv_pairs = prebuilt_kv_pairs(&mut rng, 1000, MAX_KEY_SIZE, MAX_VAL_SIZE);
 
         let mut g = c.benchmark_group("engines::write");
-        g.bench_function("kvs", |b| {
-            benchers::write(b, KvsEngineBackend::Kvs, &kv_pairs)
-        });
-        g.bench_function("sled", |b| {
-            benchers::write(b, KvsEngineBackend::Sled, &kv_pairs)
-        });
+        g.bench_with_input("kvs", &(KvsEngineBackend::Kvs, &kv_pairs), write_bench);
+        g.bench_with_input("sled", &(KvsEngineBackend::Sled, &kv_pairs), write_bench);
         g.finish();
+    }
+
+    fn write_bench(
+        b: &mut Bencher,
+        &(engine_backend, kv_pairs): &(KvsEngineBackend, &Vec<(String, String)>),
+    ) {
+        b.iter_batched(
+            || {
+                let tmpdir = TempDir::new().unwrap();
+                let kv_store = kvs::open(tmpdir.path(), engine_backend).unwrap();
+                // collect tmpdir so that it is only going to be dropped when to benchmarch ends
+                (kv_store, kv_pairs.clone(), tmpdir)
+            },
+            |(mut kv_store, kv_pairs, _tmpdir)| {
+                kv_pairs
+                    .into_iter()
+                    .for_each(|(k, v)| kv_store.set(black_box(k), black_box(v)).unwrap());
+            },
+            BatchSize::SmallInput,
+        );
     }
 
     pub fn read(c: &mut Criterion) {
         let mut rng = StdRng::from_seed([0u8; 32]);
-        let kv_pairs = prebuilt_kv_pairs(&mut rng, 100, MAX_KEY_SIZE, MAX_VAL_SIZE);
+        let kv_pairs = prebuilt_kv_pairs(&mut rng, 1000, MAX_KEY_SIZE, MAX_VAL_SIZE);
 
         let mut g = c.benchmark_group("engines::read");
-        g.bench_function("kvs", |b| {
-            benchers::read(b, KvsEngineBackend::Kvs, &kv_pairs)
-        });
-        g.bench_function("sled", |b| {
-            benchers::read(b, KvsEngineBackend::Sled, &kv_pairs)
-        });
+        g.bench_with_input("kvs", &(KvsEngineBackend::Kvs, &kv_pairs), read_bench);
+        g.bench_with_input("sled", &(KvsEngineBackend::Sled, &kv_pairs), read_bench);
         g.finish();
+    }
+
+    fn read_bench(
+        b: &mut Bencher,
+        &(engine_backend, kv_pairs): &(KvsEngineBackend, &Vec<(String, String)>),
+    ) {
+        let tmpdir = TempDir::new().unwrap();
+        let mut kv_store = kvs::open(tmpdir.path(), engine_backend).unwrap();
+        kv_pairs
+            .iter()
+            .for_each(|(k, v)| kv_store.set(k.clone(), v.clone()).unwrap());
+
+        let mut shuffling_rng = StdRng::from_seed([0u8; 32]);
+        b.iter_batched(
+            || {
+                let mut shuffled_kv_pairs = kv_pairs.clone();
+                shuffled_kv_pairs.shuffle(&mut shuffling_rng);
+                shuffled_kv_pairs
+            },
+            |shuffled_kv_pairs| {
+                shuffled_kv_pairs
+                    .into_iter()
+                    .for_each(|(k, v)| assert_eq!(Some(v), kv_store.get(black_box(k)).unwrap()))
+            },
+            BatchSize::SmallInput,
+        );
     }
 
     fn prebuilt_kv_pairs<R>(
@@ -82,58 +120,5 @@ mod engines {
             .collect();
 
         (k, v)
-    }
-
-    mod benchers {
-        use super::*;
-
-        pub fn write(
-            b: &mut Bencher,
-            engine_backend: KvsEngineBackend,
-            kv_pairs: &[(String, String)],
-        ) {
-            b.iter_batched(
-                || {
-                    let kv_pairs = Vec::from(kv_pairs);
-                    let tmpdir = TempDir::new().unwrap();
-                    let kv_store = kvs::open(tmpdir.path(), engine_backend).unwrap();
-                    // collect tmpdir so that it is only going to be dropped when to benchmarch ends
-                    (kv_store, kv_pairs, tmpdir)
-                },
-                |(mut kv_store, kv_pairs, _tmpdir)| {
-                    kv_pairs
-                        .into_iter()
-                        .for_each(|(k, v)| kv_store.set(black_box(k), black_box(v)).unwrap());
-                },
-                BatchSize::SmallInput,
-            );
-        }
-
-        pub fn read(
-            b: &mut Bencher,
-            engine_backend: KvsEngineBackend,
-            kv_pairs: &[(String, String)],
-        ) {
-            let tmpdir = TempDir::new().unwrap();
-            let mut kv_store = kvs::open(tmpdir.path(), engine_backend).unwrap();
-            kv_pairs
-                .iter()
-                .for_each(|(k, v)| kv_store.set(k.clone(), v.clone()).unwrap());
-
-            let mut shuffling_rng = StdRng::from_seed([0u8; 32]);
-            b.iter_batched(
-                || {
-                    let mut shuffled_kv_pairs = Vec::from(kv_pairs);
-                    shuffled_kv_pairs.shuffle(&mut shuffling_rng);
-                    shuffled_kv_pairs
-                },
-                |shuffled_kv_pairs| {
-                    shuffled_kv_pairs
-                        .into_iter()
-                        .for_each(|(k, v)| assert_eq!(Some(v), kv_store.get(black_box(k)).unwrap()))
-                },
-                BatchSize::SmallInput,
-            );
-        }
     }
 }
