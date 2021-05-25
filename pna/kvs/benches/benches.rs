@@ -14,6 +14,9 @@ criterion_group! {
 mod engines {
     use super::*;
 
+    // NOTE: Running the benchmarks with a maximum key/value size of 100000 as stated in the project
+    // requirements will cause sled to hang, this might be because of we are flushing the in-memory
+    // data on every write/remove
     const MAX_KEY_SIZE: usize = 1000;
     const MAX_VAL_SIZE: usize = 1000;
 

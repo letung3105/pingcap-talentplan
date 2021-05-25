@@ -26,6 +26,9 @@ impl SledKvsEngine {
     }
 }
 
+// NOTE: We are flushing the in-memory data on every write/remove operation since the current test
+// forcefully kill the server before it has a chance to cleanup. This causes the data store to run
+// very slow and it should be changed once the test from pingcap is updated
 impl KvsEngine for SledKvsEngine {
     fn set(&mut self, key: String, value: String) -> Result<()> {
         self.db.insert(key, value.as_bytes())?;
@@ -37,7 +40,7 @@ impl KvsEngine for SledKvsEngine {
         self.db
             .get(key.as_bytes())
             .map(|val| {
-                // NOTE: since the value is inserted as a string, using unwrap is ok
+                // NOTE: Since the value is inserted as a string, using unwrap is ok
                 val.map(|iv| iv.to_vec())
                     .map(|v| String::from_utf8(v).unwrap())
             })
