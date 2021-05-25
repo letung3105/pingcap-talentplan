@@ -1,4 +1,6 @@
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, Bencher, Criterion};
+use criterion::{
+    black_box, criterion_group, criterion_main, BatchSize, Bencher, Criterion, Throughput,
+};
 use kvs::engines::KvsEngineBackend;
 use rand::distributions::Alphanumeric;
 use rand::prelude::*;
@@ -22,9 +24,10 @@ mod engines {
 
     pub fn write(c: &mut Criterion) {
         let mut rng = StdRng::from_seed([0u8; 32]);
-        let kv_pairs = prebuilt_kv_pairs(&mut rng, 1000, MAX_KEY_SIZE, MAX_VAL_SIZE);
+        let (kv_pairs, bytes) = prebuilt_kv_pairs(&mut rng, 1000, MAX_KEY_SIZE, MAX_VAL_SIZE);
 
         let mut g = c.benchmark_group("engines::write");
+        g.throughput(Throughput::Bytes(bytes as u64));
         g.bench_with_input("kvs", &(KvsEngineBackend::Kvs, &kv_pairs), write_bench);
         g.bench_with_input("sled", &(KvsEngineBackend::Sled, &kv_pairs), write_bench);
         g.finish();
@@ -46,15 +49,16 @@ mod engines {
                     .into_iter()
                     .for_each(|(k, v)| kv_store.set(black_box(k), black_box(v)).unwrap());
             },
-            BatchSize::SmallInput,
+            BatchSize::LargeInput,
         );
     }
 
     pub fn read(c: &mut Criterion) {
         let mut rng = StdRng::from_seed([0u8; 32]);
-        let kv_pairs = prebuilt_kv_pairs(&mut rng, 1000, MAX_KEY_SIZE, MAX_VAL_SIZE);
+        let (kv_pairs, bytes) = prebuilt_kv_pairs(&mut rng, 1000, MAX_KEY_SIZE, MAX_VAL_SIZE);
 
         let mut g = c.benchmark_group("engines::read");
+        g.throughput(Throughput::Bytes(bytes as u64));
         g.bench_with_input("kvs", &(KvsEngineBackend::Kvs, &kv_pairs), read_bench);
         g.bench_with_input("sled", &(KvsEngineBackend::Sled, &kv_pairs), read_bench);
         g.finish();
@@ -82,7 +86,7 @@ mod engines {
                     .into_iter()
                     .for_each(|(k, v)| assert_eq!(Some(v), kv_store.get(black_box(k)).unwrap()))
             },
-            BatchSize::SmallInput,
+            BatchSize::LargeInput,
         );
     }
 
@@ -91,14 +95,20 @@ mod engines {
         size: usize,
         max_key_size: usize,
         max_val_size: usize,
-    ) -> Vec<(String, String)>
+    ) -> (Vec<(String, String)>, usize)
     where
         R: Rng,
     {
-        (0..size)
+        let mut bytes = 0;
+        let kv_pairs = (0..size)
             .into_iter()
-            .map(|_| rand_key_value(rng, max_key_size, max_val_size))
-            .collect()
+            .map(|_| {
+                let (k, v) = rand_key_value(rng, max_key_size, max_val_size);
+                bytes += k.as_bytes().len() + v.as_bytes().len();
+                (k, v)
+            })
+            .collect();
+        (kv_pairs, bytes)
     }
 
     fn rand_key_value<R>(rng: &mut R, max_key_size: usize, max_val_size: usize) -> (String, String)
