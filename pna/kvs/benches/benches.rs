@@ -7,7 +7,7 @@ use tempfile::TempDir;
 criterion_main!(benches);
 criterion_group! {
     name = benches;
-    config = Criterion::default().significance_level(0.05).sample_size(500);
+    config = Criterion::default().significance_level(0.05).sample_size(1000);
     targets = engines::write, engines::read
 }
 
@@ -17,8 +17,8 @@ mod engines {
     // NOTE: Running the benchmarks with a maximum key/value size of 100000 as stated in the project
     // requirements will cause sled to hang, this might be because of we are flushing the in-memory
     // data on every write/remove
-    const MAX_KEY_SIZE: usize = 1000;
-    const MAX_VAL_SIZE: usize = 1000;
+    const MAX_KEY_SIZE: usize = 100000;
+    const MAX_VAL_SIZE: usize = 100000;
 
     pub fn write(c: &mut Criterion) {
         let mut rng = StdRng::from_seed([0u8; 32]);

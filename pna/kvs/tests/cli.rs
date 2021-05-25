@@ -291,6 +291,8 @@ fn cli_access_server(engine: &str, addr: &str) {
         .success()
         .stdout(is_empty());
 
+    // wait for data to be flushed
+    thread::sleep(Duration::from_secs(2));
     sender.send(()).unwrap();
     handle.join().unwrap();
 
