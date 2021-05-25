@@ -87,8 +87,9 @@ pub fn choose_engine_backend<P>(
 where
     P: Into<PathBuf>,
 {
-    let path = path.into();
-    let engine_backend_path = path.join(KVS_ENGINE_BACKEND_FILENAME);
+    let mut engine_backend_path = path.into();
+    engine_backend_path.push(KVS_ENGINE_BACKEND_FILENAME);
+
     match fs::read_to_string(engine_backend_path) {
         Ok(prev_engine_backend) => {
             let prev_engine_backend = KvsEngineBackend::from_str(&prev_engine_backend)?;

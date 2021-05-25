@@ -287,13 +287,15 @@ fn create_log<P>(path: P, epoch: u64) -> Result<(BufWriter<File>, BufReader<File
 where
     P: Into<PathBuf>,
 {
-    let path = path.into();
-    let log_path = path.join(format!("epoch-{}.log", epoch));
+    let mut log_path = path.into();
+    log_path.push(format!("epoch-{}.log", epoch));
+
     let writable_log = OpenOptions::new()
         .create_new(true)
         .append(true)
         .open(&log_path)?;
     let readable_log = OpenOptions::new().read(true).open(&log_path)?;
+
     let writer = BufWriter::new(writable_log);
     let reader = BufReader::new(readable_log);
     Ok((writer, reader))

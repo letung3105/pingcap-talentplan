@@ -17,11 +17,11 @@ impl SledKvsEngine {
     where
         P: Into<PathBuf>,
     {
-        let path = path.into();
-        let backend_path = path.join(KVS_ENGINE_BACKEND_FILENAME);
+        let active_path = path.into();
+        let backend_path = active_path.join(KVS_ENGINE_BACKEND_FILENAME);
         fs::write(backend_path, KvsEngineBackend::Sled.as_str())?;
 
-        let db = sled::Config::default().path(path).open()?;
+        let db = sled::Config::default().path(active_path).open()?;
         Ok(Self { db })
     }
 }
@@ -29,11 +29,11 @@ impl SledKvsEngine {
 impl KvsEngine for SledKvsEngine {
     fn set(&mut self, key: String, value: String) -> Result<()> {
         self.db.insert(key, value.as_bytes())?;
-        self.db.flush()?;
         Ok(())
     }
 
     fn get(&mut self, key: String) -> Result<Option<String>> {
+        self.db.flush()?;
         // NOTE: since the value is inserted as a string, using unwrap is ok
         self.db
             .get(key.as_bytes())
@@ -48,7 +48,12 @@ impl KvsEngine for SledKvsEngine {
         self.db
             .remove(key.as_bytes())?
             .ok_or(Error::from(ErrorKind::KeyNotFound))?;
-        self.db.flush()?;
         Ok(())
+    }
+}
+
+impl Drop for SledKvsEngine {
+    fn drop(&mut self) {
+        self.db.flush().unwrap();
     }
 }
