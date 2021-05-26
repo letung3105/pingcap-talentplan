@@ -38,13 +38,20 @@ mod engines {
                 );
             };
 
-        for key_size in [10_usize, 128, 256, 512].iter() {
-            for val_size in [0_usize, 10, 128, 256, 512, 1024, 2048, 4096, 8192].iter() {
-                let mut g =
-                    c.benchmark_group(format!("write (key/val size {}B/{}B)", key_size, val_size));
+        for key_size in [8_usize, 64, 512, 4096, 32768, 262144].iter() {
+            for val_size in [0_usize, 32, 1024, 32768, 1048576].iter() {
+                let mut g = c.benchmark_group("write");
                 g.throughput(Throughput::Bytes((key_size + val_size) as u64));
-                g.bench_with_input("kvs", &(KvsEngineBackend::Kvs, *key_size, *val_size), bench);
-                g.bench_with_input("sled", &(KvsEngineBackend::Sled, *key_size, *val_size), bench);
+                g.bench_with_input(
+                    format!("kvs (key/val size {}B/{}B)", key_size, val_size),
+                    &(KvsEngineBackend::Kvs, *key_size, *val_size),
+                    bench,
+                );
+                g.bench_with_input(
+                    format!("sled (key/val size {}B/{}B)", key_size, val_size),
+                    &(KvsEngineBackend::Sled, *key_size, *val_size),
+                    bench,
+                );
                 g.finish();
             }
         }
@@ -73,16 +80,23 @@ mod engines {
                 );
             };
 
-        for key_size in [10_usize, 128, 256, 512].iter() {
-            for val_size in [0_usize, 10, 128, 256, 512, 1024, 2048, 4096, 8192].iter() {
+        for key_size in [8_usize, 64, 512, 4096, 32768, 262144].iter() {
+            for val_size in [0_usize, 32, 1024, 32768, 1048576].iter() {
                 let mut rng = StdRng::from_seed([0u8; 32]);
                 let kv_pairs = prebuilt_kv_pairs(&mut rng, 1000, *key_size, *val_size);
 
-                let mut g =
-                    c.benchmark_group(format!("read (key/val size {}B/{}B)", key_size, val_size));
-                g.throughput(Throughput::Bytes((*key_size + *val_size) as u64));
-                g.bench_with_input("kvs", &(KvsEngineBackend::Kvs, &kv_pairs), bench);
-                g.bench_with_input("sled", &(KvsEngineBackend::Sled, &kv_pairs), bench);
+                let mut g = c.benchmark_group("read");
+                g.throughput(Throughput::Bytes((key_size + val_size) as u64));
+                g.bench_with_input(
+                    format!("kvs (key/val size {}B/{}B)", key_size, val_size),
+                    &(KvsEngineBackend::Kvs, &kv_pairs),
+                    bench,
+                );
+                g.bench_with_input(
+                    format!("sled (key/val size {}B/{}B)", key_size, val_size),
+                    &(KvsEngineBackend::Sled, &kv_pairs),
+                    bench,
+                );
                 g.finish();
             }
         }
