@@ -2,7 +2,7 @@
 extern crate slog;
 
 use kvs::engines::{choose_engine_backend, KvsEngineBackend};
-use kvs::{KvsServer, Result};
+use kvs::{KvStore, KvsEngine, KvsServer, Result, SledKvsEngine};
 use slog::Drain;
 use std::env;
 use std::net::SocketAddr;
@@ -25,9 +25,12 @@ fn run(logger: slog::Logger) -> Result<()> {
     let current_dir = env::current_dir()?;
 
     let engine_backend = choose_engine_backend(&current_dir, opt.engine_backend)?;
-    let logger = logger.new(o!( "engine" => engine_backend.as_str()));
+    let kvs_engine: Box<dyn KvsEngine> = match engine_backend {
+        KvsEngineBackend::Kvs => Box::new(KvStore::open(&current_dir)?),
+        KvsEngineBackend::Sled => Box::new(SledKvsEngine::open(&current_dir)?),
+    };
 
-    let kvs_engine = kvs::open(&current_dir, engine_backend)?;
+    let logger = logger.new(o!( "engine" => engine_backend.as_str()));
     let mut kvs_server = KvsServer::new(kvs_engine, Some(logger));
     kvs_server.serve(opt.server_addr)?;
     Ok(())

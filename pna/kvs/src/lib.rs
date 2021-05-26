@@ -10,6 +10,6 @@ pub mod engines;
 pub mod error;
 pub mod proto;
 
-pub use engines::{open, KvStore, KvsEngine, SledKvsEngine};
+pub use engines::{KvStore, KvsEngine, SledKvsEngine};
 pub use error::{Error, ErrorKind, Result};
 pub use proto::{KvsClient, KvsServer};

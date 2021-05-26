@@ -63,18 +63,6 @@ impl FromStr for KvsEngineBackend {
     }
 }
 
-/// Create a new object that implements the trait `KvsEngine`
-pub fn open<P>(path: P, backend: KvsEngineBackend) -> Result<Box<dyn KvsEngine>>
-where
-    P: Into<PathBuf>,
-{
-    let kvs_engine: Box<dyn KvsEngine> = match backend {
-        KvsEngineBackend::Kvs => Box::new(KvStore::open(path)?),
-        KvsEngineBackend::Sled => Box::new(SledKvsEngine::open(path)?),
-    };
-    Ok(kvs_engine)
-}
-
 /// Parse the [`KvsEngineBackend`] that was previously used in the given directory,
 /// and compare that against the chosen [`KvsEngineBackend`].
 /// Returns the [`KvsEngineBackend`] that will be used.
@@ -94,10 +82,10 @@ where
         Ok(prev_engine_backend) => {
             let prev_engine_backend = KvsEngineBackend::from_str(&prev_engine_backend)?;
             let engine_backend = engine_backend.unwrap_or(prev_engine_backend);
-            if engine_backend != prev_engine_backend {
-                Err(Error::from(ErrorKind::MismatchedKvsEngineBackend))
-            } else {
+            if engine_backend == prev_engine_backend {
                 Ok(engine_backend)
+            } else {
+                Err(Error::from(ErrorKind::MismatchedKvsEngineBackend))
             }
         }
         Err(err) => {
