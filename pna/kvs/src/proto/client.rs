@@ -34,8 +34,11 @@ impl KvsClient {
         let res = self.make_request(req)?;
         match res.response_result {
             Some(result) => match result {
-                ResponseResult::ErrorMessage(msg) => Err(Error::from_remote(msg)),
-                _ => Err(Error::from(ErrorKind::InvalidNetworkMessage)),
+                ResponseResult::ErrorMessage(msg) => Err(Error::new(ErrorKind::ServerError, msg)),
+                _ => Err(Error::new(
+                    ErrorKind::InvalidNetworkMessage,
+                    "Expecting an empty response",
+                )),
             },
             None => Ok(()),
         }
@@ -52,7 +55,7 @@ impl KvsClient {
         let res = self.make_request(req)?;
         match res.response_result {
             Some(result) => match result {
-                ResponseResult::ErrorMessage(msg) => Err(Error::from_remote(msg)),
+                ResponseResult::ErrorMessage(msg) => Err(Error::new(ErrorKind::ServerError, msg)),
                 ResponseResult::GetCommandValue(value) => Ok(Some(value)),
             },
             None => Ok(None),
@@ -70,8 +73,11 @@ impl KvsClient {
         let res = self.make_request(req)?;
         match res.response_result {
             Some(result) => match result {
-                ResponseResult::ErrorMessage(msg) => Err(Error::from_remote(msg)),
-                _ => Err(Error::from(ErrorKind::InvalidNetworkMessage)),
+                ResponseResult::ErrorMessage(msg) => Err(Error::new(ErrorKind::ServerError, msg)),
+                _ => Err(Error::new(
+                    ErrorKind::InvalidNetworkMessage,
+                    "Expecting an empty response",
+                )),
             },
             None => Ok(()),
         }

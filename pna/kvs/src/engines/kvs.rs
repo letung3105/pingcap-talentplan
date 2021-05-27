@@ -124,7 +124,12 @@ impl KvStore {
                         length: index.length,
                     };
                 }
-                None => return Err(Error::from(ErrorKind::CorruptedIndex)),
+                None => {
+                    return Err(Error::new(
+                        ErrorKind::CorruptedIndex,
+                        format!("Could not get reader for epoch #{}", index.epoch),
+                    ))
+                }
             }
         }
         merged_writer.flush()?;
@@ -192,10 +197,16 @@ impl KvsEngine for KvStore {
                     reader.seek(SeekFrom::Start(index.offset))?;
                     match bincode::deserialize_from(reader)? {
                         KvsLogEntry::Set(_, value) => Ok(Some(value)),
-                        _ => Err(Error::from(ErrorKind::CorruptedLog)),
+                        _ => Err(Error::new(
+                            ErrorKind::CorruptedLog,
+                            "Expecting a log entry for a set operation",
+                        )),
                     }
                 }
-                None => Err(Error::from(ErrorKind::CorruptedIndex)),
+                None => Err(Error::new(
+                    ErrorKind::CorruptedIndex,
+                    format!("Could not get reader for epoch #{}", index.epoch),
+                )),
             },
             None => Ok(None),
         }
@@ -214,7 +225,10 @@ impl KvsEngine for KvStore {
             the in-memory index.
         */
         if !self.index_map.contains_key(&key) {
-            return Err(Error::from(ErrorKind::KeyNotFound));
+            return Err(Error::new(
+                ErrorKind::KeyNotFound,
+                format!("Key '{}' does not exist", key),
+            ));
         }
 
         let command = KvsLogEntry::Rm(key.clone());

@@ -58,7 +58,10 @@ impl FromStr for KvsEngineBackend {
         match name.as_str() {
             "kvs" => Ok(Self::Kvs),
             "sled" => Ok(Self::Sled),
-            _ => Err(Error::from(ErrorKind::UnsupportedKvsEngineBackend)),
+            _ => Err(Error::new(
+                ErrorKind::UnsupportedKvsEngineBackend,
+                format!("Could not found engine named '{}'", name),
+            )),
         }
     }
 }
@@ -85,7 +88,14 @@ where
             if engine_backend == prev_engine_backend {
                 Ok(engine_backend)
             } else {
-                Err(Error::from(ErrorKind::MismatchedKvsEngineBackend))
+                Err(Error::new(
+                    ErrorKind::MismatchedKvsEngineBackend,
+                    format!(
+                        "Path's engine is different from the chosen engine, {} vs. {}",
+                        prev_engine_backend.as_str(),
+                        engine_backend.as_str()
+                    ),
+                ))
             }
         }
         Err(err) => {

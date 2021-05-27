@@ -85,7 +85,12 @@ impl KvsServer {
                         Some(KvsRequestKind::Set) => self.handle_set(stream, req.key, req.value),
                         Some(KvsRequestKind::Get) => self.handle_get(stream, req.key),
                         Some(KvsRequestKind::Remove) => self.handle_remove(stream, req.key),
-                        None => return Err(Error::from(ErrorKind::InvalidNetworkMessage)),
+                        None => {
+                            return Err(Error::new(
+                                ErrorKind::InvalidNetworkMessage,
+                                "Expecting an operation in the request",
+                            ))
+                        }
                     };
 
                     if let Some(req_kind) = req_kind {

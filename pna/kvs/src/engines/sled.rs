@@ -47,9 +47,10 @@ impl KvsEngine for SledKvsEngine {
     }
 
     fn remove(&mut self, key: String) -> Result<()> {
-        self.db
-            .remove(key.as_bytes())?
-            .ok_or(Error::from(ErrorKind::KeyNotFound))?;
+        self.db.remove(key.as_bytes())?.ok_or(Error::new(
+            ErrorKind::KeyNotFound,
+            format!("Key '{}' does not exist", key),
+        ))?;
         Ok(())
     }
 }

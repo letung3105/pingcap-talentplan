@@ -1,5 +1,7 @@
 //! Errors for operations on the key-value store
 
+use std::error;
+
 /// Library result
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -13,8 +15,7 @@ pub struct Error {
 enum Repr {
     /// Specific error with no additional messages
     Simple(ErrorKind),
-    /// Error message returned from the remote server
-    RemoteMessage(String),
+    Custom(Box<CustomRepr>),
 
     /// I/O error
     Io(std::io::Error),
@@ -29,10 +30,14 @@ enum Repr {
 }
 
 impl Error {
-    /// Create an error from the error message that was received from a remote service
-    pub fn from_remote(msg: String) -> Self {
+    /// Create a new error
+    pub fn new<E>(kind: ErrorKind, error: E) -> Error
+    where
+        E: Into<Box<dyn error::Error + Send + Sync>>,
+    {
+        let error = error.into();
         Self {
-            repr: Repr::RemoteMessage(msg),
+            repr: Repr::Custom(Box::new(CustomRepr { kind, error })),
         }
     }
 }
@@ -51,7 +56,7 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.repr {
             Repr::Simple(ref kind) => write!(f, "{}", kind.as_str()),
-            Repr::RemoteMessage(ref msg) => write!(f, "{} (error from remote)", msg),
+            Repr::Custom(ref repr) => write!(f, "{} ({})", repr.error, repr.kind.as_str()),
             Repr::Io(ref err) => write!(f, "{} (i/o error)", err),
             Repr::Sled(ref err) => write!(f, "{} (sled error)", err),
             Repr::Bincode(ref err) => write!(f, "{} (bincode (de)serialization error)", err),
@@ -101,6 +106,12 @@ impl From<prost::DecodeError> for Error {
     }
 }
 
+#[derive(Debug)]
+struct CustomRepr {
+    kind: ErrorKind,
+    error: Box<dyn error::Error + Send + Sync>,
+}
+
 /// Types of error
 #[derive(Debug)]
 pub enum ErrorKind {
@@ -116,6 +127,8 @@ pub enum ErrorKind {
     UnsupportedKvsEngineBackend,
     /// Provided engine backed is different from the one used in the data directory
     MismatchedKvsEngineBackend,
+    /// Error that was originated from the remote server
+    ServerError,
 }
 
 impl ErrorKind {
@@ -127,6 +140,7 @@ impl ErrorKind {
             Self::InvalidNetworkMessage => "Received an invalid network message",
             Self::UnsupportedKvsEngineBackend => "Unsupported key-value store engine backend",
             Self::MismatchedKvsEngineBackend => "Mismatched key-value store engine backend",
+            Self::ServerError => "Remote server error",
         }
     }
 }
