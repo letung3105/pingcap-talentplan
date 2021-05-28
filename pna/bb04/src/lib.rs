@@ -14,8 +14,8 @@ impl ThreadPool {
         let jobs_rx = Mutex::new(jobs_rx);
 
         let context = Arc::new(ThreadPoolContext { jobs_rx });
-        let pool = Self { jobs_tx, context };
-        Ok(pool)
+        (0..threads).for_each(|_| spawn(context.clone()));
+        Ok(Self { jobs_tx, context })
     }
 
     pub fn exec<F>(&self, job: F)
@@ -37,13 +37,19 @@ pub struct ThreadPoolContext {
 }
 
 fn spawn(context: Arc<ThreadPoolContext>) {
-    std::thread::spawn(move || {
+    std::thread::spawn(move || loop {
         let queued = {
+            // drop MutexGuard as soon as a job is acquired
             let guarded_jobs_rx = context
                 .jobs_rx
                 .lock()
-                .expect("Could not get exclusive access to jobs_rx.");
+                .expect("Could not get exclusive access to the jobs receive channel.");
             guarded_jobs_rx.recv()
         };
+
+        match queued {
+            Ok(job) => job(),
+            Err(_) => break,
+        }
     });
 }
