@@ -1,6 +1,6 @@
 //! A simple thread pool implementation
 
-#![warn(missing_docs)]
+#![warn(missing_docs, missing_debug_implementations)]
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -11,6 +11,7 @@ type Thunk<'a> = Box<dyn FnOnce() + Send + 'a>;
 
 /// A thread pool where tasks can be queued and wait for execution, this structure allows multiple
 /// threads to manage the same thread pool
+#[derive(Debug, Clone)]
 pub struct ThreadPool {
     jobs_tx: Sender<Thunk<'static>>,
     context: Arc<Context>,
@@ -64,17 +65,9 @@ impl ThreadPool {
     }
 }
 
-impl Clone for ThreadPool {
-    fn clone(&self) -> Self {
-        Self {
-            jobs_tx: self.jobs_tx.clone(),
-            context: self.context.clone(),
-        }
-    }
-}
-
 /// A context that is shared by all threads in the thread pool. Inter-thread communications and
 /// sychronizations are performed through this structure
+#[derive(Debug)]
 struct Context {
     jobs_rx: Mutex<Receiver<Thunk<'static>>>,
     count_queued: AtomicUsize,
