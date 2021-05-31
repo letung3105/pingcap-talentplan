@@ -1,11 +1,22 @@
 use bb04::ThreadPool;
-use std::time::Duration;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let thread_pool = ThreadPool::new(4)?;
-    thread_pool.exec(|| println!("Hello world 1"));
-    thread_pool.exec(|| println!("Hello world 2"));
-    thread_pool.exec(|| println!("Hello world 3"));
-    std::thread::sleep(Duration::from_secs(5));
+    let handles: Vec<_> = (0..100)
+        .map(|i| {
+            let pool = thread_pool.clone();
+            std::thread::spawn(move || {
+                pool.exec(move || println!("Hello world {}1", i));
+                pool.exec(move || println!("Hello world {}2", i));
+                pool.exec(move || println!("Hello world {}3", i));
+                pool.join();
+            })
+        })
+        .collect();
+
+    for h in handles {
+        h.join().unwrap();
+    }
+
     Ok(())
 }
