@@ -13,8 +13,9 @@ use std::str::FromStr;
 
 /// The file that contains the name of key-value store engine used in the directory
 pub const KVS_ENGINE_BACKEND_FILENAME: &str = "ENGINE_BACKEND";
+
 /// Define the interface of a key-value store
-pub trait KvsEngine : Clone + Send + 'static{
+pub trait KvsEngine: Clone + Send + 'static {
     /// Sets a value to a key.
     fn set(&self, key: String, value: String) -> Result<()>;
 
@@ -23,12 +24,6 @@ pub trait KvsEngine : Clone + Send + 'static{
 
     /// Removes a key.
     fn remove(&self, key: String) -> Result<()>;
-}
-
-impl std::fmt::Debug for dyn KvsEngine {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Key-value store engine")
-    }
 }
 
 /// Different engines that can be used for the key-value store
