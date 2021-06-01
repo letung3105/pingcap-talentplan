@@ -92,13 +92,17 @@ impl KvStore {
         let (writer, reader) = create_log(&active_path, active_epoch)?;
         readers.insert(active_epoch, reader);
 
-        Ok(Self {
+        let context = Context {
             active_path,
             active_epoch,
             garbage,
             writer,
             readers,
             index_map,
+        };
+
+        Ok(Self {
+            context: Arc::new(Mutex::new(context)),
         })
     }
 
