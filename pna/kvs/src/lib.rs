@@ -9,6 +9,7 @@ extern crate slog;
 pub mod engines;
 pub mod error;
 pub mod proto;
+pub mod thread_pool;
 
 pub use engines::{KvStore, KvsEngine, SledKvsEngine};
 pub use error::{Error, ErrorKind, Result};
