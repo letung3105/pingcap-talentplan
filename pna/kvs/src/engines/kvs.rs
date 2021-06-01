@@ -8,6 +8,7 @@ use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 const GARBAGE_THRESHOLD: u64 = 4 * 1024 * 1024;
 
@@ -46,8 +47,13 @@ const GARBAGE_THRESHOLD: u64 = 4 * 1024 * 1024;
 ///     Ok(())
 /// }
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct KvStore {
+    context: Arc<Mutex<Context>>,
+}
+
+#[derive(Debug)]
+struct Context {
     active_path: PathBuf,
     active_epoch: u64,
     garbage: u64,
