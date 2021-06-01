@@ -13,14 +13,20 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 /// Implementation of a server that listens for client requests, and performs the received commands
 /// on the underlying key-value storage engine
 #[allow(missing_debug_implementations)]
-pub struct KvsServer {
+pub struct KvsServer<E>
+where
+    E: KvsEngine,
+{
     logger: slog::Logger,
-    kvs_engine: Box<dyn KvsEngine>,
+    kvs_engine: E,
 }
 
-impl KvsServer {
+impl<E> KvsServer<E>
+where
+    E: KvsEngine,
+{
     /// Create a new key-value store server that uses the given engine
-    pub fn new<L>(kvs_engine: Box<dyn KvsEngine>, logger: L) -> Self
+    pub fn new<L>(kvs_engine: E, logger: L) -> Self
     where
         L: Into<Option<slog::Logger>>,
     {
