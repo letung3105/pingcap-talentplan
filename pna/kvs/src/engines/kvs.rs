@@ -170,19 +170,21 @@ impl KvsEngine for KvStore {
             When setting a value a key, a `Set` command is written to disk in a sequential log,
             then the log pointer (file offset) is stored in an in-memory index from key to pointer.
         */
-        let active_offset = self.writer.stream_position()?;
+        let mut context = self.context.lock().unwrap();
+
+        let active_offset = context.writer.stream_position()?;
         let command = KvsLogEntry::Set(key.clone(), val);
-        bincode::serialize_into(&mut self.writer, &command)?;
-        self.writer.flush()?;
+        bincode::serialize_into(&mut context.writer, &command)?;
+        context.writer.flush()?;
 
         let index = KvsLogEntryIndex {
-            epoch: self.active_epoch,
+            epoch: context.active_epoch,
             offset: active_offset,
-            length: self.writer.stream_position()? - active_offset,
+            length: context.writer.stream_position()? - active_offset,
         };
-        if let Some(prev_index) = self.index_map.insert(key, index) {
-            self.garbage += prev_index.length;
-            if self.garbage > GARBAGE_THRESHOLD {
+        if let Some(prev_index) = context.index_map.insert(key, index) {
+            context.garbage += prev_index.length;
+            if context.garbage > GARBAGE_THRESHOLD {
                 self.merge()?;
             }
         };
@@ -201,8 +203,10 @@ impl KvsEngine for KvStore {
             found an index, loads the command from the log at the corresponding log pointer,
             evaluates the command, and returns the result.
         */
-        match self.index_map.get(&key) {
-            Some(index) => match self.readers.get_mut(&index.epoch) {
+        let mut context = self.context.lock().unwrap();
+
+        match context.index_map.get(&key) {
+            Some(index) => match context.readers.get_mut(&index.epoch) {
                 Some(reader) => {
                     reader.seek(SeekFrom::Start(index.offset))?;
                     match bincode::deserialize_from(reader)? {
@@ -234,7 +238,9 @@ impl KvsEngine for KvStore {
             a `Remove` command is written to disk a in sequential log, and the key is removed from
             the in-memory index.
         */
-        if !self.index_map.contains_key(&key) {
+        let mut context = self.context.lock().unwrap();
+
+        if !context.index_map.contains_key(&key) {
             return Err(Error::new(
                 ErrorKind::KeyNotFound,
                 format!("Key '{}' does not exist", key),
@@ -242,12 +248,12 @@ impl KvsEngine for KvStore {
         }
 
         let command = KvsLogEntry::Rm(key.clone());
-        bincode::serialize_into(&mut self.writer, &command)?;
-        self.writer.flush()?;
+        bincode::serialize_into(&mut context.writer, &command)?;
+        context.writer.flush()?;
 
-        if let Some(prev_index) = self.index_map.remove(&key) {
-            self.garbage += prev_index.length;
-            if self.garbage > GARBAGE_THRESHOLD {
+        if let Some(prev_index) = context.index_map.remove(&key) {
+            context.garbage += prev_index.length;
+            if context.garbage > GARBAGE_THRESHOLD {
                 self.merge()?;
             }
         };
