@@ -106,7 +106,7 @@ impl KvStore {
         })
     }
 
-    fn merge(&mut self) -> Result<()> {
+    fn merge(&self) -> Result<()> {
         // create 2 new log: one for the merged entries and one for the new active log
         let merged_epoch = self.active_epoch + 1;
         self.active_epoch += 2;
@@ -165,7 +165,7 @@ impl KvsEngine for KvStore {
     /// # Error
     ///
     /// Error from I/O operations and serialization/deserialization operations will be propagated.
-    fn set(&mut self, key: String, val: String) -> Result<()> {
+    fn set(&self, key: String, val: String) -> Result<()> {
         /*
             When setting a value a key, a `Set` command is written to disk in a sequential log,
             then the log pointer (file offset) is stored in an in-memory index from key to pointer.
@@ -195,7 +195,7 @@ impl KvsEngine for KvStore {
     /// # Error
     ///
     /// Error from I/O operations will be propagated.
-    fn get(&mut self, key: String) -> Result<Option<String>> {
+    fn get(&self, key: String) -> Result<Option<String>> {
         /*
             When retrieving a value for a key, the store searches for the key in the index. If
             found an index, loads the command from the log at the corresponding log pointer,
@@ -228,7 +228,7 @@ impl KvsEngine for KvStore {
     ///
     /// Error from I/O operations will be propagated. If the key doesn't exist returns a
     /// `KeyNotFound` error.
-    fn remove(&mut self, key: String) -> Result<()> {
+    fn remove(&self, key: String) -> Result<()> {
         /*
             When removing a key, the store searches for the key in the index. If an index is found,
             a `Remove` command is written to disk a in sequential log, and the key is removed from
