@@ -14,15 +14,15 @@ use std::str::FromStr;
 /// The file that contains the name of key-value store engine used in the directory
 pub const KVS_ENGINE_BACKEND_FILENAME: &str = "ENGINE_BACKEND";
 /// Define the interface of a key-value store
-pub trait KvsEngine {
+pub trait KvsEngine : Clone + Send + 'static{
     /// Sets a value to a key.
-    fn set(&mut self, key: String, value: String) -> Result<()>;
+    fn set(&self, key: String, value: String) -> Result<()>;
 
     /// Returns the value of a key, if the key exists. Otherwise, returns `None`.
-    fn get(&mut self, key: String) -> Result<Option<String>>;
+    fn get(&self, key: String) -> Result<Option<String>>;
 
     /// Removes a key.
-    fn remove(&mut self, key: String) -> Result<()>;
+    fn remove(&self, key: String) -> Result<()>;
 }
 
 impl std::fmt::Debug for dyn KvsEngine {
