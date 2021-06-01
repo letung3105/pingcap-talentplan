@@ -6,7 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 
 /// A key-value store that uses sled as the underlying data storage engine
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SledKvsEngine {
     db: sled::Db,
 }
@@ -26,16 +26,13 @@ impl SledKvsEngine {
     }
 }
 
-// NOTE: We are flushing the in-memory data on every write/remove operation since the current test
-// forcefully kill the server before it has a chance to cleanup. This causes the data store to run
-// very slow and it should be changed once the test from pingcap is updated
 impl KvsEngine for SledKvsEngine {
-    fn set(&mut self, key: String, value: String) -> Result<()> {
+    fn set(&self, key: String, value: String) -> Result<()> {
         self.db.insert(key, value.as_bytes())?;
         Ok(())
     }
 
-    fn get(&mut self, key: String) -> Result<Option<String>> {
+    fn get(&self, key: String) -> Result<Option<String>> {
         self.db
             .get(key.as_bytes())
             .map(|val| {
@@ -46,7 +43,7 @@ impl KvsEngine for SledKvsEngine {
             .map_err(Error::from)
     }
 
-    fn remove(&mut self, key: String) -> Result<()> {
+    fn remove(&self, key: String) -> Result<()> {
         self.db.remove(key.as_bytes())?.ok_or(Error::new(
             ErrorKind::KeyNotFound,
             format!("Key '{}' does not exist", key),
