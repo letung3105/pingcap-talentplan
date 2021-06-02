@@ -28,7 +28,7 @@ const GARBAGE_THRESHOLD: u64 = 4 * 1024 * 1024;
 ///
 /// fn main() -> Result<()> {
 ///     let temp_dir = TempDir::new().expect("unable to create temporary working directory");
-///     let mut kvs = KvStore::open(temp_dir.path())?;
+///     let kvs = KvStore::open(temp_dir.path())?;
 ///
 ///     kvs.set("key".to_string(), "val".to_string())?;
 ///     let val = kvs.get("key".to_string())?;

@@ -291,7 +291,7 @@ fn cli_access_server(engine: &str, addr: &str) {
         .success()
         .stdout(is_empty());
 
-    thread::sleep(Duration::from_secs(3));
+    thread::sleep(Duration::from_secs(2));
     sender.send(()).unwrap();
     handle.join().unwrap();
 
