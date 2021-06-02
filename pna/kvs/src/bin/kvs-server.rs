@@ -2,6 +2,7 @@
 extern crate slog;
 
 use kvs::engines::Engine;
+use kvs::networking::JsonKvsServer;
 use kvs::thread_pool::{NaiveThreadPool, ThreadPool};
 use kvs::{KvStore, KvsEngine, KvsServer, Result, SledKvsEngine};
 use slog::Drain;
@@ -68,7 +69,7 @@ where
     E: KvsEngine,
     P: ThreadPool,
 {
-    let mut kvs_server = KvsServer::new(engine, pool, Some(logger));
+    let mut kvs_server = JsonKvsServer::new(engine, pool, Some(logger));
     kvs_server.serve(addr)
 }
 

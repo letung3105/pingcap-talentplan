@@ -1,3 +1,4 @@
+use kvs::networking::JsonKvsClient;
 use kvs::KvsClient;
 use std::net::SocketAddr;
 use structopt::StructOpt;
@@ -13,18 +14,18 @@ fn run() -> kvs::Result<()> {
     let opt = ClientCliOpt::from_args();
     match opt.sub_cmd {
         ClientCliSubCommand::Set { key, val, addr } => {
-            let kvs_client = KvsClient::new(addr);
+            let mut kvs_client = JsonKvsClient::connect(addr)?;
             kvs_client.set(key, val)?;
         }
         ClientCliSubCommand::Get { key, addr } => {
-            let kvs_client = KvsClient::new(addr);
+            let mut kvs_client = JsonKvsClient::connect(addr)?;
             match kvs_client.get(key)? {
                 Some(val) => println!("{}", val),
                 None => println!("Key not found"),
             }
         }
         ClientCliSubCommand::Rm { key, addr } => {
-            let kvs_client = KvsClient::new(addr);
+            let mut kvs_client = JsonKvsClient::connect(addr)?;
             kvs_client.remove(key)?;
         }
     }
