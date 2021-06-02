@@ -11,7 +11,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
-const KVS_ENGINE_BACKEND_FILENAME: &str = "ENGINE_BACKEND";
+const KVS_ENGINE_FILENAME: &str = "KVS_ENGINE";
 
 fn main() {
     let decorator = slog_term::TermDecorator::new().stderr().build();
@@ -49,7 +49,7 @@ fn run(logger: slog::Logger) -> Result<()> {
         },
     };
 
-    let engine_path = current_dir.join(KVS_ENGINE_BACKEND_FILENAME);
+    let engine_path = current_dir.join(KVS_ENGINE_FILENAME);
     fs::write(engine_path, engine.as_str())?;
 
     let pool = NaiveThreadPool::new(4)?;
@@ -76,7 +76,7 @@ fn current_directory_engine<P>(path: P) -> Result<Option<Engine>>
 where
     P: Into<PathBuf>,
 {
-    let engine_path = path.into().join(KVS_ENGINE_BACKEND_FILENAME);
+    let engine_path = path.into().join(KVS_ENGINE_FILENAME);
     if !engine_path.exists() {
         return Ok(None);
     }

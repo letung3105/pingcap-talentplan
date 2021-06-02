@@ -20,7 +20,7 @@ where
     P: ThreadPool,
 {
     logger: slog::Logger,
-    kvs_engine: E,
+    engine: E,
     pool: P,
 }
 
@@ -43,7 +43,7 @@ where
 
         Self {
             logger,
-            kvs_engine,
+            engine: kvs_engine,
             pool,
         }
     }
@@ -66,7 +66,7 @@ where
 
             let mut stream = stream.unwrap();
             let peer_addr = stream.peer_addr()?;
-            let kvs_engine = self.kvs_engine.clone();
+            let kvs_engine = self.engine.clone();
             let logger = self.logger.new(o!( "peer_addr" => peer_addr.to_string() ));
 
             self.pool.spawn(move || match stream.try_clone() {

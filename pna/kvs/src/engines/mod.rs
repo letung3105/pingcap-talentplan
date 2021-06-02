@@ -30,7 +30,7 @@ pub enum Engine {
 }
 
 impl Engine {
-    /// Get the string representation of the key-value store engine backend
+    /// Get the string representation of the key-value store engine
     pub fn as_str(&self) -> &'static str {
         match *self {
             Self::Kvs => "kvs",
@@ -48,7 +48,7 @@ impl FromStr for Engine {
             "kvs" => Ok(Self::Kvs),
             "sled" => Ok(Self::Sled),
             _ => Err(Error::new(
-                ErrorKind::UnsupportedKvsEngineBackend,
+                ErrorKind::UnsupportedKvsEngine,
                 format!("Could not found engine named '{}'", name),
             )),
         }
