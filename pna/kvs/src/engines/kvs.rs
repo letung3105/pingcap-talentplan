@@ -107,20 +107,22 @@ impl KvStore {
     }
 
     fn merge(&self) -> Result<()> {
+        let mut context = self.context.lock().unwrap();
+
         // create 2 new log: one for the merged entries and one for the new active log
-        let merged_epoch = self.active_epoch + 1;
-        self.active_epoch += 2;
+        let merged_epoch = context.active_epoch + 1;
+        context.active_epoch += 2;
+        let (writer, reader) = create_log(&context.active_path, context.active_epoch)?;
+        context.writer = writer;
+        let active_epoch = context.active_epoch;
+        context.readers.insert(active_epoch, reader);
+        let (mut merged_writer, merged_reader) = create_log(&context.active_path, merged_epoch)?;
+        context.readers.insert(merged_epoch, merged_reader);
 
-        let (writer, reader) = create_log(&self.active_path, self.active_epoch)?;
-        self.writer = writer;
-        self.readers.insert(self.active_epoch, reader);
-
-        let (mut merged_writer, merged_reader) = create_log(&self.active_path, merged_epoch)?;
-        self.readers.insert(merged_epoch, merged_reader);
-
+        let mut new_index_map = context.index_map.clone();
         // copy data from old log files to the merged log file and update the in-memory index map
-        for index in self.index_map.values_mut() {
-            match self.readers.get_mut(&index.epoch) {
+        for index in new_index_map.values_mut() {
+            match context.readers.get_mut(&index.epoch) {
                 Some(reader) => {
                     reader.seek(SeekFrom::Start(index.offset))?;
                     let mut entry_reader = reader.take(index.length);
@@ -142,21 +144,23 @@ impl KvStore {
                 }
             }
         }
+        context.index_map.clear();
+        context.index_map.clone_from(&new_index_map);
         merged_writer.flush()?;
 
         // remove stale log files
-        let stale_epochs: Vec<u64> = self
+        let stale_epochs: Vec<u64> = context
             .readers
             .keys()
             .filter(|&&epoch| epoch < merged_epoch)
             .cloned()
             .collect();
         for epoch in stale_epochs {
-            let log_path = self.active_path.join(format!("epoch-{}.log", epoch));
+            let log_path = context.active_path.join(format!("epoch-{}.log", epoch));
             fs::remove_file(log_path)?;
-            self.readers.remove(&epoch);
+            context.readers.remove(&epoch);
         }
-        self.garbage = 0;
+        context.garbage = 0;
         Ok(())
     }
 }
@@ -205,7 +209,8 @@ impl KvsEngine for KvStore {
         */
         let mut context = self.context.lock().unwrap();
 
-        match context.index_map.get(&key) {
+        let get_result = context.index_map.get(&key).cloned();
+        match get_result {
             Some(index) => match context.readers.get_mut(&index.epoch) {
                 Some(reader) => {
                     reader.seek(SeekFrom::Start(index.offset))?;
@@ -267,7 +272,7 @@ enum KvsLogEntry {
     Rm(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct KvsLogEntryIndex {
     epoch: u64,
     offset: u64,
