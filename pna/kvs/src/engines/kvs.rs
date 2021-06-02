@@ -1,6 +1,5 @@
 //! An `KvsEngine` that uses log-structure file system.
 
-use crate::engines::{KvsEngineBackend, KVS_ENGINE_BACKEND_FILENAME};
 use crate::{Error, ErrorKind, KvsEngine, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -59,9 +58,6 @@ impl KvStore {
         P: Into<PathBuf>,
     {
         let active_path = path.into();
-
-        let backend_path = active_path.join(KVS_ENGINE_BACKEND_FILENAME);
-        fs::write(backend_path, KvsEngineBackend::Kvs.as_str())?;
 
         let prev_epochs = previous_epochs(&active_path)?;
         let active_epoch = prev_epochs.last().map(|&e| e + 1).unwrap_or_default();

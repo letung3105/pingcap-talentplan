@@ -1,8 +1,6 @@
 //! An `KvsEngine` that proxies method calls to the underlying `sled` key-value store.
 
-use crate::engines::{KvsEngineBackend, KVS_ENGINE_BACKEND_FILENAME};
 use crate::{Error, ErrorKind, KvsEngine, Result};
-use std::fs;
 use std::path::PathBuf;
 
 /// A key-value store that uses sled as the underlying data storage engine
@@ -18,9 +16,6 @@ impl SledKvsEngine {
         P: Into<PathBuf>,
     {
         let active_path = path.into();
-        let backend_path = active_path.join(KVS_ENGINE_BACKEND_FILENAME);
-        fs::write(backend_path, KvsEngineBackend::Sled.as_str())?;
-
         let db = sled::Config::default().path(active_path).open()?;
         Ok(Self { db })
     }

@@ -126,8 +126,6 @@ pub enum ErrorKind {
     InvalidNetworkMessage,
     /// Wrong engine backend provided when constructing a key-value store
     UnsupportedKvsEngineBackend,
-    /// Provided engine backed is different from the one used in the data directory
-    MismatchedKvsEngineBackend,
     /// Error that was originated from the remote server
     ServerError,
 }
@@ -140,7 +138,6 @@ impl ErrorKind {
             Self::CorruptedIndex => "Corrupted in-memory index",
             Self::InvalidNetworkMessage => "Received an invalid network message",
             Self::UnsupportedKvsEngineBackend => "Unsupported key-value store engine backend",
-            Self::MismatchedKvsEngineBackend => "Mismatched key-value store engine backend",
             Self::ServerError => "Remote server error",
         }
     }

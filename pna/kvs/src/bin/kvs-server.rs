@@ -1,13 +1,17 @@
 #[macro_use]
 extern crate slog;
 
-use kvs::engines::{choose_engine_backend, KvsEngineBackend};
+use kvs::engines::Engine;
 use kvs::thread_pool::{NaiveThreadPool, ThreadPool};
-use kvs::{KvStore, KvsServer, Result, SledKvsEngine};
+use kvs::{KvStore, KvsEngine, KvsServer, Result, SledKvsEngine};
 use slog::Drain;
 use std::env;
+use std::fs;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use structopt::StructOpt;
+
+const KVS_ENGINE_BACKEND_FILENAME: &str = "ENGINE_BACKEND";
 
 fn main() {
     let decorator = slog_term::TermDecorator::new().stderr().build();
@@ -22,27 +26,67 @@ fn main() {
 }
 
 fn run(logger: slog::Logger) -> Result<()> {
-    let opt = ServerCliOpt::from_args();
+    let cli_options = ServerCliOpt::from_args();
     let current_dir = env::current_dir()?;
 
-    let engine_backend = choose_engine_backend(&current_dir, opt.engine_backend)?;
-    let thread_pool = NaiveThreadPool::new(4)?;
-    match engine_backend {
-        KvsEngineBackend::Kvs => {
-            let kvs_engine = KvStore::open(&current_dir)?;
-            let logger = logger.new(o!( "engine" => engine_backend.as_str()));
-            let mut kvs_server = KvsServer::new(kvs_engine, thread_pool, Some(logger));
-            kvs_server.serve(opt.server_addr)?;
-        }
-        KvsEngineBackend::Sled => {
-            let kvs_engine = SledKvsEngine::open(&current_dir)?;
-            let logger = logger.new(o!( "engine" => engine_backend.as_str()));
-            let mut kvs_server = KvsServer::new(kvs_engine, thread_pool, Some(logger));
-            kvs_server.serve(opt.server_addr)?;
-        }
+    let current_engine = current_directory_engine(&current_dir)?;
+    let engine = match cli_options.engine {
+        None => current_engine.unwrap_or(Engine::Kvs),
+        Some(selected_engine) => match current_engine {
+            None => selected_engine,
+            Some(current_engine) => {
+                if selected_engine == current_engine {
+                    selected_engine
+                } else {
+                    eprintln!(
+                        "Path's engine is different from the chosen engine, {} vs. {}",
+                        current_engine.as_str(),
+                        selected_engine.as_str()
+                    );
+                    std::process::exit(1);
+                }
+            }
+        },
     };
 
-    Ok(())
+    let engine_path = current_dir.join(KVS_ENGINE_BACKEND_FILENAME);
+    fs::write(engine_path, engine.as_str())?;
+
+    let pool = NaiveThreadPool::new(4)?;
+    let logger = logger.new(o!( "engine" => engine.as_str()));
+    match engine {
+        Engine::Kvs => run_with(cli_options.addr, KvStore::open(&current_dir)?, pool, logger),
+        Engine::Sled => run_with(
+            cli_options.addr,
+            SledKvsEngine::open(&current_dir)?,
+            pool,
+            logger,
+        ),
+    }
+}
+
+fn run_with<E, P>(addr: SocketAddr, engine: E, pool: P, logger: slog::Logger) -> Result<()>
+where
+    E: KvsEngine,
+    P: ThreadPool,
+{
+    let mut kvs_server = KvsServer::new(engine, pool, Some(logger));
+    kvs_server.serve(addr)
+}
+
+fn current_directory_engine<P>(path: P) -> Result<Option<Engine>>
+where
+    P: Into<PathBuf>,
+{
+    let engine_path = path.into().join(KVS_ENGINE_BACKEND_FILENAME);
+    if !engine_path.exists() {
+        return Ok(None);
+    }
+
+    match fs::read_to_string(engine_path)?.parse() {
+        Ok(engine) => Ok(Some(engine)),
+        Err(_) => Ok(None),
+    }
 }
 
 #[derive(StructOpt)]
@@ -52,11 +96,11 @@ struct ServerCliOpt {
         about = "IP address of the key-value store",
         default_value = "127.0.0.1:4000"
     )]
-    server_addr: SocketAddr,
+    addr: SocketAddr,
 
     #[structopt(
         long = "engine",
         about = "Name of the engine that is used for the key-value store"
     )]
-    engine_backend: Option<KvsEngineBackend>,
+    engine: Option<Engine>,
 }

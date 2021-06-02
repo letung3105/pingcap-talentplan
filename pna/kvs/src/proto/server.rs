@@ -30,11 +30,11 @@ where
     P: ThreadPool,
 {
     /// Create a new key-value store server that uses the given engine
-    pub fn new<L>(kvs_engine: E, pool: P, logger: L) -> Self
+    pub fn new<L>(kvs_engine: E, pool: P, logger: Option<L>) -> Self
     where
-        L: Into<Option<slog::Logger>>,
+        L: Into<slog::Logger>,
     {
-        let logger = logger.into().unwrap_or({
+        let logger = logger.map(|l| l.into()).unwrap_or({
             let decorator = slog_term::TermDecorator::new().build();
             let drain = slog_term::FullFormat::new(decorator).build().fuse();
             let drain = slog_async::Async::new(drain).build().fuse();
