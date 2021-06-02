@@ -52,16 +52,6 @@ pub struct KvStore {
     context: Arc<Mutex<Context>>,
 }
 
-#[derive(Debug)]
-struct Context {
-    active_path: PathBuf,
-    active_epoch: u64,
-    garbage: u64,
-    writer: BufWriter<File>,
-    readers: HashMap<u64, BufReader<File>>,
-    index_map: HashMap<String, KvsLogEntryIndex>,
-}
-
 impl KvStore {
     /// Open the key-value store at the given path and return the store to the caller.
     pub fn open<P>(path: P) -> Result<Self>
@@ -105,24 +95,145 @@ impl KvStore {
             context: Arc::new(Mutex::new(context)),
         })
     }
+}
 
-    fn merge(&self) -> Result<()> {
+impl KvsEngine for KvStore {
+    /// # Error
+    ///
+    /// Error from I/O operations and serialization/deserialization operations will be propagated.
+    fn set(&self, key: String, val: String) -> Result<()> {
         let mut context = self.context.lock().unwrap();
+        context.set(key, val)
+    }
 
+    /// Returns the value of a key, if the key exists. Otherwise, returns `None`.
+    ///
+    /// # Error
+    ///
+    /// Error from I/O operations will be propagated.
+    fn get(&self, key: String) -> Result<Option<String>> {
+        let mut context = self.context.lock().unwrap();
+        context.get(key)
+    }
+
+    /// Removes a key.
+    ///
+    /// # Error
+    ///
+    /// Error from I/O operations will be propagated. If the key doesn't exist returns a
+    /// `KeyNotFound` error.
+    fn remove(&self, key: String) -> Result<()> {
+        let mut context = self.context.lock().unwrap();
+        context.remove(key)
+    }
+}
+
+#[derive(Debug)]
+struct Context {
+    active_path: PathBuf,
+    active_epoch: u64,
+    garbage: u64,
+    writer: BufWriter<File>,
+    readers: HashMap<u64, BufReader<File>>,
+    index_map: HashMap<String, KvsLogEntryIndex>,
+}
+
+impl Context {
+    fn set(&mut self, key: String, val: String) -> Result<()> {
+        /*
+            When setting a value a key, a `Set` command is written to disk in a sequential log,
+            then the log pointer (file offset) is stored in an in-memory index from key to pointer.
+        */
+        let active_offset = self.writer.stream_position()?;
+        let command = KvsLogEntry::Set(key.clone(), val);
+        bincode::serialize_into(&mut self.writer, &command)?;
+        self.writer.flush()?;
+
+        let index = KvsLogEntryIndex {
+            epoch: self.active_epoch,
+            offset: active_offset,
+            length: self.writer.stream_position()? - active_offset,
+        };
+        if let Some(prev_index) = self.index_map.insert(key, index) {
+            self.garbage += prev_index.length;
+            if self.garbage > GARBAGE_THRESHOLD {
+                self.merge()?;
+            }
+        };
+
+        Ok(())
+    }
+
+    fn get(&mut self, key: String) -> Result<Option<String>> {
+        /*
+            When retrieving a value for a key, the store searches for the key in the index. If
+            found an index, loads the command from the log at the corresponding log pointer,
+            evaluates the command, and returns the result.
+        */
+        let get_result = self.index_map.get(&key).cloned();
+        match get_result {
+            Some(index) => match self.readers.get_mut(&index.epoch) {
+                Some(reader) => {
+                    reader.seek(SeekFrom::Start(index.offset))?;
+                    match bincode::deserialize_from(reader)? {
+                        KvsLogEntry::Set(_, value) => Ok(Some(value)),
+                        _ => Err(Error::new(
+                            ErrorKind::CorruptedLog,
+                            "Expecting a log entry for a set operation",
+                        )),
+                    }
+                }
+                None => Err(Error::new(
+                    ErrorKind::CorruptedIndex,
+                    format!("Could not get reader for epoch #{}", index.epoch),
+                )),
+            },
+            None => Ok(None),
+        }
+    }
+
+    fn remove(&mut self, key: String) -> Result<()> {
+        /*
+            When removing a key, the store searches for the key in the index. If an index is found,
+            a `Remove` command is written to disk a in sequential log, and the key is removed from
+            the in-memory index.
+        */
+
+        if !self.index_map.contains_key(&key) {
+            return Err(Error::new(
+                ErrorKind::KeyNotFound,
+                format!("Key '{}' does not exist", key),
+            ));
+        }
+
+        let command = KvsLogEntry::Rm(key.clone());
+        bincode::serialize_into(&mut self.writer, &command)?;
+        self.writer.flush()?;
+
+        if let Some(prev_index) = self.index_map.remove(&key) {
+            self.garbage += prev_index.length;
+            if self.garbage > GARBAGE_THRESHOLD {
+                self.merge()?;
+            }
+        };
+        Ok(())
+    }
+
+    fn merge(&mut self) -> Result<()> {
         // create 2 new log: one for the merged entries and one for the new active log
-        let merged_epoch = context.active_epoch + 1;
-        context.active_epoch += 2;
-        let (writer, reader) = create_log(&context.active_path, context.active_epoch)?;
-        context.writer = writer;
-        let active_epoch = context.active_epoch;
-        context.readers.insert(active_epoch, reader);
-        let (mut merged_writer, merged_reader) = create_log(&context.active_path, merged_epoch)?;
-        context.readers.insert(merged_epoch, merged_reader);
+        let merged_epoch = self.active_epoch + 1;
+        self.active_epoch += 2;
+        let (writer, reader) = create_log(&self.active_path, self.active_epoch)?;
+        self.writer = writer;
+        let active_epoch = self.active_epoch;
+        self.readers.insert(active_epoch, reader);
+        let (mut merged_writer, merged_reader) = create_log(&self.active_path, merged_epoch)?;
+        self.readers.insert(merged_epoch, merged_reader);
 
-        let mut new_index_map = context.index_map.clone();
+        let mut new_index_map = self.index_map.clone();
         // copy data from old log files to the merged log file and update the in-memory index map
         for index in new_index_map.values_mut() {
-            match context.readers.get_mut(&index.epoch) {
+            match self.readers.get_mut(&index.epoch) {
                 Some(reader) => {
                     reader.seek(SeekFrom::Start(index.offset))?;
                     let mut entry_reader = reader.take(index.length);
@@ -144,124 +255,23 @@ impl KvStore {
                 }
             }
         }
-        context.index_map.clear();
-        context.index_map.clone_from(&new_index_map);
+        self.index_map.clear();
+        self.index_map.clone_from(&new_index_map);
         merged_writer.flush()?;
 
         // remove stale log files
-        let stale_epochs: Vec<u64> = context
+        let stale_epochs: Vec<u64> = self
             .readers
             .keys()
             .filter(|&&epoch| epoch < merged_epoch)
             .cloned()
             .collect();
         for epoch in stale_epochs {
-            let log_path = context.active_path.join(format!("epoch-{}.log", epoch));
+            let log_path = self.active_path.join(format!("epoch-{}.log", epoch));
             fs::remove_file(log_path)?;
-            context.readers.remove(&epoch);
+            self.readers.remove(&epoch);
         }
-        context.garbage = 0;
-        Ok(())
-    }
-}
-
-impl KvsEngine for KvStore {
-    /// # Error
-    ///
-    /// Error from I/O operations and serialization/deserialization operations will be propagated.
-    fn set(&self, key: String, val: String) -> Result<()> {
-        /*
-            When setting a value a key, a `Set` command is written to disk in a sequential log,
-            then the log pointer (file offset) is stored in an in-memory index from key to pointer.
-        */
-        let mut context = self.context.lock().unwrap();
-
-        let active_offset = context.writer.stream_position()?;
-        let command = KvsLogEntry::Set(key.clone(), val);
-        bincode::serialize_into(&mut context.writer, &command)?;
-        context.writer.flush()?;
-
-        let index = KvsLogEntryIndex {
-            epoch: context.active_epoch,
-            offset: active_offset,
-            length: context.writer.stream_position()? - active_offset,
-        };
-        if let Some(prev_index) = context.index_map.insert(key, index) {
-            context.garbage += prev_index.length;
-            if context.garbage > GARBAGE_THRESHOLD {
-                self.merge()?;
-            }
-        };
-
-        Ok(())
-    }
-
-    /// Returns the value of a key, if the key exists. Otherwise, returns `None`.
-    ///
-    /// # Error
-    ///
-    /// Error from I/O operations will be propagated.
-    fn get(&self, key: String) -> Result<Option<String>> {
-        /*
-            When retrieving a value for a key, the store searches for the key in the index. If
-            found an index, loads the command from the log at the corresponding log pointer,
-            evaluates the command, and returns the result.
-        */
-        let mut context = self.context.lock().unwrap();
-
-        let get_result = context.index_map.get(&key).cloned();
-        match get_result {
-            Some(index) => match context.readers.get_mut(&index.epoch) {
-                Some(reader) => {
-                    reader.seek(SeekFrom::Start(index.offset))?;
-                    match bincode::deserialize_from(reader)? {
-                        KvsLogEntry::Set(_, value) => Ok(Some(value)),
-                        _ => Err(Error::new(
-                            ErrorKind::CorruptedLog,
-                            "Expecting a log entry for a set operation",
-                        )),
-                    }
-                }
-                None => Err(Error::new(
-                    ErrorKind::CorruptedIndex,
-                    format!("Could not get reader for epoch #{}", index.epoch),
-                )),
-            },
-            None => Ok(None),
-        }
-    }
-
-    /// Removes a key.
-    ///
-    /// # Error
-    ///
-    /// Error from I/O operations will be propagated. If the key doesn't exist returns a
-    /// `KeyNotFound` error.
-    fn remove(&self, key: String) -> Result<()> {
-        /*
-            When removing a key, the store searches for the key in the index. If an index is found,
-            a `Remove` command is written to disk a in sequential log, and the key is removed from
-            the in-memory index.
-        */
-        let mut context = self.context.lock().unwrap();
-
-        if !context.index_map.contains_key(&key) {
-            return Err(Error::new(
-                ErrorKind::KeyNotFound,
-                format!("Key '{}' does not exist", key),
-            ));
-        }
-
-        let command = KvsLogEntry::Rm(key.clone());
-        bincode::serialize_into(&mut context.writer, &command)?;
-        context.writer.flush()?;
-
-        if let Some(prev_index) = context.index_map.remove(&key) {
-            context.garbage += prev_index.length;
-            if context.garbage > GARBAGE_THRESHOLD {
-                self.merge()?;
-            }
-        };
+        self.garbage = 0;
         Ok(())
     }
 }
