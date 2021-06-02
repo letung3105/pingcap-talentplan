@@ -1,5 +1,14 @@
 //! Implementations of different type of threadpool to parallelize operation on the data store
 
+mod naive;
+pub use naive::NaiveThreadPool;
+
+mod shared_queue;
+pub use shared_queue::SharedQueueThreadPool;
+
+mod rayon;
+pub use rayon::RayonThreadPool;
+
 use crate::Result;
 
 /// Interface of a threads manager that queues threads and executes the queued threads when
@@ -14,55 +23,4 @@ pub trait ThreadPool {
     fn spawn<F>(&self, f: F)
     where
         F: FnOnce() + Send + 'static;
-}
-
-/// A thread spawner, that reuses no thread
-#[derive(Debug, Clone)]
-pub struct NaiveThreadPool;
-
-impl ThreadPool for NaiveThreadPool {
-    fn new(_threads: u32) -> Result<Self> {
-        Ok(Self)
-    }
-
-    fn spawn<F>(&self, f: F)
-    where
-        F: FnOnce() + Send + 'static,
-    {
-        std::thread::spawn(f);
-    }
-}
-
-/// A thread spawner, that reuses no thread
-#[derive(Debug, Clone)]
-pub struct SharedQueueThreadPool;
-
-impl ThreadPool for SharedQueueThreadPool {
-    fn new(_threads: u32) -> Result<Self> {
-        todo!()
-    }
-
-    fn spawn<F>(&self, _f: F)
-    where
-        F: FnOnce() + Send + 'static,
-    {
-        todo!()
-    }
-}
-
-/// A thread spawner, that reuses no thread
-#[derive(Debug, Clone)]
-pub struct RayonThreadPool;
-
-impl ThreadPool for RayonThreadPool {
-    fn new(_threads: u32) -> Result<Self> {
-        todo!()
-    }
-
-    fn spawn<F>(&self, _f: F)
-    where
-        F: FnOnce() + Send + 'static,
-    {
-        todo!()
-    }
 }
