@@ -37,7 +37,8 @@ mod engines {
         g.throughput(Throughput::Bytes((KEY_SIZE + VAL_SIZE) as u64));
         g.bench_with_input("sled", &(KEY_SIZE, VAL_SIZE), |b, &(key_size, val_size)| {
             let tmpdir = TempDir::new().unwrap();
-            let kvs_engine = SledKvsEngine::open(tmpdir.path()).unwrap();
+            let db = sled::Config::default().path(tmpdir.path()).open().unwrap();
+            let kvs_engine = SledKvsEngine::new(db);
             let mut rng = StdRng::from_seed([0u8; 32]);
 
             b.iter_batched(
@@ -76,7 +77,8 @@ mod engines {
         g.throughput(Throughput::Bytes((KEY_SIZE + VAL_SIZE) as u64));
         g.bench_with_input("sled", &kv_pairs, |b, kv_pairs| {
             let tmpdir = TempDir::new().unwrap();
-            let kvs_engine = SledKvsEngine::open(tmpdir.path()).unwrap();
+            let db = sled::Config::default().path(tmpdir.path()).open().unwrap();
+            let kvs_engine = SledKvsEngine::new(db);
             let mut rng = StdRng::from_seed([0u8; 32]);
             kv_pairs
                 .iter()

@@ -56,12 +56,10 @@ fn run(logger: slog::Logger) -> Result<()> {
     let logger = logger.new(o!( "engine" => engine.as_str()));
     match engine {
         Engine::Kvs => run_with(cli_options.addr, KvStore::open(&current_dir)?, pool, logger),
-        Engine::Sled => run_with(
-            cli_options.addr,
-            SledKvsEngine::open(&current_dir)?,
-            pool,
-            logger,
-        ),
+        Engine::Sled => {
+            let db = sled::Config::default().path(current_dir).open()?;
+            run_with(cli_options.addr, SledKvsEngine::new(db), pool, logger)
+        }
     }
 }
 

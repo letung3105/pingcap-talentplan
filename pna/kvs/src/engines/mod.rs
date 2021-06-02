@@ -8,9 +8,6 @@ pub use self::sled::SledKvsEngine;
 use crate::{Error, ErrorKind, Result};
 use std::str::FromStr;
 
-/// The file that contains the name of key-value store engine used in the directory
-pub const KVS_ENGINE_BACKEND_FILENAME: &str = "ENGINE_BACKEND";
-
 /// Define the interface of a key-value store
 pub trait KvsEngine: Clone + Send + 'static {
     /// Sets a value to a key.
