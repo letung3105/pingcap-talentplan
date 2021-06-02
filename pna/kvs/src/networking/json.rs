@@ -1,62 +1,10 @@
-//! Module for handling network communication between client and server
-
-use std::{
-    io::{BufReader, BufWriter, Write},
-    net::{SocketAddr, TcpListener, TcpStream},
-};
-
-use serde::{Deserialize, Serialize};
+use crate::networking::{KvsServer, KvsClient};
+use crate::thread_pool::ThreadPool;
+use crate::{Error, ErrorKind, KvsEngine, Result};
 use slog::Drain;
-
-use crate::{thread_pool::ThreadPool, Error, ErrorKind, KvsEngine, Result};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-enum Request {
-    Set { key: String, value: String },
-    Get { key: String },
-    Remove { key: String },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-enum SetResponse {
-    Ok,
-    Err(String),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-enum GetResponse {
-    Ok(Option<String>),
-    Err(String),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-enum RemoveResponse {
-    Ok,
-    Err(String),
-}
-
-/// Client interface
-pub trait KvsClient {
-    /// Connect to the remote server
-    fn connect<A>(addr: A) -> Result<Self>
-    where
-        Self: Sized,
-        A: Into<SocketAddr>;
-    /// Send set command
-    fn set(&mut self, key: String, value: String) -> Result<()>;
-    /// Send get command
-    fn get(&mut self, key: String) -> Result<Option<String>>;
-    /// Send remove command
-    fn remove(&mut self, key: String) -> Result<()>;
-}
-
-/// Server interface
-pub trait KvsServer {
-    /// Start accepting requests on the given socket address
-    fn serve<A>(&mut self, addr: A) -> Result<()>
-    where
-        A: Into<SocketAddr>;
-}
+use serde::{Serialize, Deserialize};
+use std::io::{BufReader, BufWriter, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 
 /// Network client for JSON message
 #[derive(Debug)]
@@ -149,12 +97,12 @@ where
             }
 
             let stream = stream.unwrap();
-            let kvs_engine = self.engine.clone();
+            let engine = self.engine.clone();
             let logger = logger.new(o!( "peer_addr" => stream.peer_addr()?.to_string() ));
             info!(logger, "Peer connected.");
 
             self.pool.spawn(move || {
-                if let Err(err) = Self::handle(kvs_engine, stream) {
+                if let Err(err) = Self::handle(engine, stream, logger.clone()) {
                     error!(logger, "Could not handle client"; "error" => format!("{}", err));
                 }
             });
@@ -188,36 +136,89 @@ where
         }
     }
 
-    fn handle(engine: E, stream: TcpStream) -> Result<()> {
+    fn handle(engine: E, stream: TcpStream, logger: slog::Logger) -> Result<()> {
         let mut wstream = BufWriter::new(stream.try_clone()?);
         let mut rstream = BufReader::new(stream);
 
         let request: Request = serde_json::from_reader(&mut rstream)?;
+        info!(logger, "Received request"; "request" => format!("{:?}", request));
+
         match request {
-            Request::Set { key, value } => 
-            {
+            Request::Set { key, value } => {
                 let res = match engine.set(key, value) {
                     Ok(_) => SetResponse::Ok,
                     Err(err) => SetResponse::Err(format!("{}", err)),
                 };
-                serde_json::to_writer(&mut wstream, &res)
-            },
+                serde_json::to_writer(&mut wstream, &res)?;
+                wstream.flush()?;
+            }
             Request::Get { key } => {
                 let res = match engine.get(key) {
                     Ok(v) => GetResponse::Ok(v),
                     Err(err) => GetResponse::Err(format!("{}", err)),
                 };
-                serde_json::to_writer(&mut wstream, &res)
-            },
+                serde_json::to_writer(&mut wstream, &res)?;
+                wstream.flush()?;
+            }
             Request::Remove { key } => {
                 let res = match engine.remove(key) {
                     Ok(_) => RemoveResponse::Ok,
                     Err(err) => RemoveResponse::Err(format!("{}", err)),
                 };
-                serde_json::to_writer(&mut wstream, &res)
+                serde_json::to_writer(&mut wstream, &res)?;
+                wstream.flush()?;
             }
-        }?;
+        };
 
         Ok(())
     }
+}
+
+/// Network request message for KvsEngine command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Request {
+    /// Set command request
+    Set {
+        /// Set key
+        key: String,
+        /// Set valye
+        value: String,
+    },
+    /// Get command request
+    Get {
+        /// Get key
+        key: String,
+    },
+    /// Remove command request
+    Remove {
+        /// Remove key
+        key: String,
+    },
+}
+
+/// Network request message for KvsEngine set command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SetResponse {
+    /// Set command suceeded
+    Ok,
+    /// Set command failed
+    Err(String),
+}
+
+/// Network request message for KvsEngine get command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum GetResponse {
+    /// Get command suceeded
+    Ok(Option<String>),
+    /// Get command failed
+    Err(String),
+}
+
+/// Network request message for KvsEngine remove command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RemoveResponse {
+    /// Remove command suceeded
+    Ok,
+    /// Remove command failed
+    Err(String),
 }
