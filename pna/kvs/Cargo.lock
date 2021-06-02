@@ -456,6 +456,7 @@ dependencies = [
  "prost-build",
  "rand",
  "serde",
+ "serde_json",
  "sled",
  "slog",
  "slog-async",

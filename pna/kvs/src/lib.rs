@@ -8,6 +8,7 @@ extern crate slog;
 
 pub mod engines;
 pub mod error;
+pub mod networking;
 pub mod proto;
 pub mod thread_pool;
 
