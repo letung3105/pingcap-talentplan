@@ -114,6 +114,7 @@ struct CustomRepr {
 
 /// Types of error
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum ErrorKind {
     /// Operation on a non-existent key
     KeyNotFound,
