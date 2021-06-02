@@ -1,15 +1,16 @@
-use crate::networking::{KvsServer, KvsClient};
+use crate::networking::{KvsClient, KvsServer};
 use crate::thread_pool::ThreadPool;
 use crate::{Error, ErrorKind, KvsEngine, Result};
+use serde::{Deserialize, Serialize};
+use serde_json::de::{Deserializer, IoRead};
 use slog::Drain;
-use serde::{Serialize, Deserialize};
 use std::io::{BufReader, BufWriter, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 
 /// Network client for JSON message
-#[derive(Debug)]
+#[allow(missing_debug_implementations)]
 pub struct JsonKvsClient {
-    rstream: BufReader<TcpStream>,
+    rstream: Deserializer<IoRead<BufReader<TcpStream>>>,
     wstream: BufWriter<TcpStream>,
 }
 
@@ -22,7 +23,7 @@ impl KvsClient for JsonKvsClient {
         let wstream = TcpStream::connect(addr.into())?;
         let rstream = wstream.try_clone()?;
         Ok(Self {
-            rstream: BufReader::new(rstream),
+            rstream: Deserializer::new(IoRead::new(BufReader::new(rstream))),
             wstream: BufWriter::new(wstream),
         })
     }
@@ -32,7 +33,7 @@ impl KvsClient for JsonKvsClient {
         serde_json::to_writer(&mut self.wstream, &set_request)?;
         self.wstream.flush()?;
 
-        let set_response: SetResponse = serde_json::from_reader(&mut self.rstream)?;
+        let set_response = SetResponse::deserialize(&mut self.rstream)?;
         match set_response {
             SetResponse::Ok => Ok(()),
             SetResponse::Err(err) => Err(Error::new(ErrorKind::ServerError, err)),
@@ -44,7 +45,7 @@ impl KvsClient for JsonKvsClient {
         serde_json::to_writer(&mut self.wstream, &get_request)?;
         self.wstream.flush()?;
 
-        let get_response: GetResponse = serde_json::from_reader(&mut self.rstream)?;
+        let get_response = GetResponse::deserialize(&mut self.rstream)?;
         match get_response {
             GetResponse::Ok(val) => Ok(val),
             GetResponse::Err(err) => Err(Error::new(ErrorKind::ServerError, err)),
@@ -56,7 +57,7 @@ impl KvsClient for JsonKvsClient {
         serde_json::to_writer(&mut self.wstream, &remove_request)?;
         self.wstream.flush()?;
 
-        let remove_response: RemoveResponse = serde_json::from_reader(&mut self.rstream)?;
+        let remove_response = RemoveResponse::deserialize(&mut self.rstream)?;
         match remove_response {
             RemoveResponse::Ok => Ok(()),
             RemoveResponse::Err(err) => Err(Error::new(ErrorKind::ServerError, err)),
@@ -138,37 +139,39 @@ where
 
     fn handle(engine: E, stream: TcpStream, logger: slog::Logger) -> Result<()> {
         let mut wstream = BufWriter::new(stream.try_clone()?);
-        let mut rstream = BufReader::new(stream);
+        let rstream = Deserializer::new(IoRead::new(BufReader::new(stream)));
 
-        let request: Request = serde_json::from_reader(&mut rstream)?;
-        info!(logger, "Received request"; "request" => format!("{:?}", request));
+        for request in rstream.into_iter() {
+            let request = request?;
+            info!(logger, "Received request"; "request" => format!("{:?}", request));
 
-        match request {
-            Request::Set { key, value } => {
-                let res = match engine.set(key, value) {
-                    Ok(_) => SetResponse::Ok,
-                    Err(err) => SetResponse::Err(format!("{}", err)),
-                };
-                serde_json::to_writer(&mut wstream, &res)?;
-                wstream.flush()?;
-            }
-            Request::Get { key } => {
-                let res = match engine.get(key) {
-                    Ok(v) => GetResponse::Ok(v),
-                    Err(err) => GetResponse::Err(format!("{}", err)),
-                };
-                serde_json::to_writer(&mut wstream, &res)?;
-                wstream.flush()?;
-            }
-            Request::Remove { key } => {
-                let res = match engine.remove(key) {
-                    Ok(_) => RemoveResponse::Ok,
-                    Err(err) => RemoveResponse::Err(format!("{}", err)),
-                };
-                serde_json::to_writer(&mut wstream, &res)?;
-                wstream.flush()?;
-            }
-        };
+            match request {
+                Request::Set { key, value } => {
+                    let res = match engine.set(key, value) {
+                        Ok(_) => SetResponse::Ok,
+                        Err(err) => SetResponse::Err(format!("{}", err)),
+                    };
+                    serde_json::to_writer(&mut wstream, &res)?;
+                    wstream.flush()?;
+                }
+                Request::Get { key } => {
+                    let res = match engine.get(key) {
+                        Ok(v) => GetResponse::Ok(v),
+                        Err(err) => GetResponse::Err(format!("{}", err)),
+                    };
+                    serde_json::to_writer(&mut wstream, &res)?;
+                    wstream.flush()?;
+                }
+                Request::Remove { key } => {
+                    let res = match engine.remove(key) {
+                        Ok(_) => RemoveResponse::Ok,
+                        Err(err) => RemoveResponse::Err(format!("{}", err)),
+                    };
+                    serde_json::to_writer(&mut wstream, &res)?;
+                    wstream.flush()?;
+                }
+            };
+        }
 
         Ok(())
     }
