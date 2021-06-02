@@ -2,6 +2,7 @@
 extern crate slog;
 
 use kvs::engines::{choose_engine_backend, KvsEngineBackend};
+use kvs::thread_pool::{NaiveThreadPool, ThreadPool};
 use kvs::{KvStore, KvsServer, Result, SledKvsEngine};
 use slog::Drain;
 use std::env;
@@ -25,17 +26,18 @@ fn run(logger: slog::Logger) -> Result<()> {
     let current_dir = env::current_dir()?;
 
     let engine_backend = choose_engine_backend(&current_dir, opt.engine_backend)?;
+    let thread_pool = NaiveThreadPool::new(4)?;
     match engine_backend {
         KvsEngineBackend::Kvs => {
             let kvs_engine = KvStore::open(&current_dir)?;
             let logger = logger.new(o!( "engine" => engine_backend.as_str()));
-            let mut kvs_server = KvsServer::new(kvs_engine, Some(logger));
+            let mut kvs_server = KvsServer::new(kvs_engine, thread_pool, Some(logger));
             kvs_server.serve(opt.server_addr)?;
         }
         KvsEngineBackend::Sled => {
             let kvs_engine = SledKvsEngine::open(&current_dir)?;
             let logger = logger.new(o!( "engine" => engine_backend.as_str()));
-            let mut kvs_server = KvsServer::new(kvs_engine, Some(logger));
+            let mut kvs_server = KvsServer::new(kvs_engine, thread_pool, Some(logger));
             kvs_server.serve(opt.server_addr)?;
         }
     };

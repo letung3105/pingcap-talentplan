@@ -3,6 +3,7 @@
 use crate::proto::messages::kvs_request::KvsRequestKind;
 use crate::proto::messages::kvs_response::ResponseResult;
 use crate::proto::messages::{KvsRequest, KvsResponse};
+use crate::thread_pool::ThreadPool;
 use crate::{Error, ErrorKind, KvsEngine, Result};
 use bytes::{BufMut, BytesMut};
 use prost::Message;
@@ -13,20 +14,23 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 /// Implementation of a server that listens for client requests, and performs the received commands
 /// on the underlying key-value storage engine
 #[allow(missing_debug_implementations)]
-pub struct KvsServer<E>
+pub struct KvsServer<E, P>
 where
     E: KvsEngine,
+    P: ThreadPool,
 {
     logger: slog::Logger,
     kvs_engine: E,
+    pool: P,
 }
 
-impl<E> KvsServer<E>
+impl<E, P> KvsServer<E, P>
 where
     E: KvsEngine,
+    P: ThreadPool,
 {
     /// Create a new key-value store server that uses the given engine
-    pub fn new<L>(kvs_engine: E, logger: L) -> Self
+    pub fn new<L>(kvs_engine: E, pool: P, logger: L) -> Self
     where
         L: Into<Option<slog::Logger>>,
     {
@@ -37,7 +41,11 @@ where
             slog::Logger::root(drain, o!())
         });
 
-        Self { logger, kvs_engine }
+        Self {
+            logger,
+            kvs_engine,
+            pool,
+        }
     }
 
     /// Starting accepting requests on the given IP address and modify the key-value store
@@ -52,25 +60,38 @@ where
         info!(self.logger, "Starting key-value store server");
         let listener = TcpListener::bind(addr)?;
         for stream in listener.incoming() {
-            if let Ok(mut stream) = stream {
-                if let Err(err) = self.handle_client(stream.try_clone()?) {
-                    let res = KvsResponse {
-                        response_result: Some(ResponseResult::ErrorMessage(err.to_string())),
-                    };
-                    let mut res_buf = vec![];
-                    res.encode_length_delimited(&mut res_buf)?;
-                    stream.write_all(&res_buf)?;
-                }
+            if let Err(_) = stream {
+                continue;
             }
+
+            let mut stream = stream.unwrap();
+            let peer_addr = stream.peer_addr()?;
+            let kvs_engine = self.kvs_engine.clone();
+            let logger = self.logger.new(o!( "peer_addr" => peer_addr.to_string() ));
+
+            self.pool.spawn(move || match stream.try_clone() {
+                Ok(s) => {
+                    if let Err(err) = Self::handle_client(kvs_engine, s) {
+                        let res = KvsResponse {
+                            response_result: Some(ResponseResult::ErrorMessage(err.to_string())),
+                        };
+                        let mut res_buf = vec![];
+                        res.encode_length_delimited(&mut res_buf).unwrap();
+                        stream.write_all(&res_buf).unwrap();
+                    }
+                }
+                Err(err) => {
+                    error!(logger, "Could not clone network stream"; "error" => err);
+                }
+            });
         }
         Ok(())
     }
 
-    fn handle_client(&mut self, stream: TcpStream) -> Result<()> {
+    fn handle_client(kvs_engine: E, stream: TcpStream) -> Result<()> {
         let mut stream_reader = BufReader::new(stream.try_clone()?);
         let mut len_delim_buf = [0u8; 10];
         let mut msg_len_delim = BytesMut::new();
-        let peer_addr = stream.peer_addr()?;
 
         loop {
             let n_read = stream_reader.read(&mut len_delim_buf)?;
@@ -88,9 +109,13 @@ where
                     let req = KvsRequest::decode(msg_len_delim.split_off(len_delim_length))?;
                     let req_kind = KvsRequestKind::from_i32(req.kind);
                     let res = match req_kind {
-                        Some(KvsRequestKind::Set) => self.handle_set(stream, req.key, req.value),
-                        Some(KvsRequestKind::Get) => self.handle_get(stream, req.key),
-                        Some(KvsRequestKind::Remove) => self.handle_remove(stream, req.key),
+                        Some(KvsRequestKind::Set) => {
+                            Self::handle_set(kvs_engine, stream, req.key, req.value)
+                        }
+                        Some(KvsRequestKind::Get) => Self::handle_get(kvs_engine, stream, req.key),
+                        Some(KvsRequestKind::Remove) => {
+                            Self::handle_remove(kvs_engine, stream, req.key)
+                        }
                         None => {
                             return Err(Error::new(
                                 ErrorKind::InvalidNetworkMessage,
@@ -98,13 +123,6 @@ where
                             ))
                         }
                     };
-
-                    if let Some(req_kind) = req_kind {
-                        info!(self.logger,
-                            "Handled client request";
-                            "peer_addr" => peer_addr.to_string(),
-                            "request" => req_kind.as_str());
-                    }
                     return res;
                 }
                 Err(err) => {
@@ -116,8 +134,8 @@ where
         }
     }
 
-    fn handle_set(&mut self, mut stream: TcpStream, key: String, value: String) -> Result<()> {
-        self.kvs_engine.set(key, value)?;
+    fn handle_set(kvs_engine: E, mut stream: TcpStream, key: String, value: String) -> Result<()> {
+        kvs_engine.set(key, value)?;
         let res = KvsResponse {
             response_result: None,
         };
@@ -127,8 +145,8 @@ where
         Ok(())
     }
 
-    fn handle_get(&mut self, mut stream: TcpStream, key: String) -> Result<()> {
-        let value = self.kvs_engine.get(key)?;
+    fn handle_get(kvs_engine: E, mut stream: TcpStream, key: String) -> Result<()> {
+        let value = kvs_engine.get(key)?;
         let res = KvsResponse {
             response_result: value.map(|val| ResponseResult::GetCommandValue(val)),
         };
@@ -138,8 +156,8 @@ where
         Ok(())
     }
 
-    fn handle_remove(&mut self, mut stream: TcpStream, key: String) -> Result<()> {
-        self.kvs_engine.remove(key)?;
+    fn handle_remove(kvs_engine: E, mut stream: TcpStream, key: String) -> Result<()> {
+        kvs_engine.remove(key)?;
         let res = KvsResponse {
             response_result: None,
         };
