@@ -13,5 +13,4 @@ pub mod thread_pool;
 
 pub use engines::{KvStore, KvsEngine, SledKvsEngine};
 pub use error::{Error, ErrorKind, Result};
-// pub use proto::{KvsClient, KvsServer};
 pub use networking::{KvsClient, KvsServer};

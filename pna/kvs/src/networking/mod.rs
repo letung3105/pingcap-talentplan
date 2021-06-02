@@ -2,7 +2,7 @@
 
 mod json;
 
-pub use json::*;
+pub use json::{JsonKvsClient, JsonKvsServer};
 
 use crate::Result;
 use std::net::SocketAddr;
