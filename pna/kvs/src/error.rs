@@ -25,10 +25,6 @@ enum Repr {
     Bincode(bincode::Error),
     /// Serde JSON error
     SerdeJson(serde_json::Error),
-    /// Prost serialization error
-    ProstEncode(prost::EncodeError),
-    /// Prost deserialization error
-    ProstDecode(prost::DecodeError),
 }
 
 impl Error {
@@ -63,8 +59,6 @@ impl std::fmt::Display for Error {
             Repr::Sled(ref err) => write!(f, "{} (sled error)", err),
             Repr::Bincode(ref err) => write!(f, "{} (bincode (de)serialization error)", err),
             Repr::SerdeJson(ref err) => write!(f, "{} (json (de)serialization error)", err),
-            Repr::ProstEncode(ref err) => write!(f, "{} (protobuf serialization error)", err),
-            Repr::ProstDecode(ref err) => write!(f, "{} (protobuf deserialization error(", err),
         }
     }
 }
@@ -97,22 +91,6 @@ impl From<serde_json::Error> for Error {
     fn from(err: serde_json::Error) -> Self {
         Self {
             repr: Repr::SerdeJson(err),
-        }
-    }
-}
-
-impl From<prost::EncodeError> for Error {
-    fn from(err: prost::EncodeError) -> Self {
-        Self {
-            repr: Repr::ProstEncode(err),
-        }
-    }
-}
-
-impl From<prost::DecodeError> for Error {
-    fn from(err: prost::DecodeError) -> Self {
-        Self {
-            repr: Repr::ProstDecode(err),
         }
     }
 }
