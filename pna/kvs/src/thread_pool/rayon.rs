@@ -2,18 +2,23 @@ use crate::thread_pool::ThreadPool;
 use crate::Result;
 
 /// A thread spawner, that reuses no thread
-#[derive(Debug, Clone)]
-pub struct RayonThreadPool;
+#[allow(missing_debug_implementations)]
+pub struct RayonThreadPool {
+    pool: rayon::ThreadPool,
+}
 
 impl ThreadPool for RayonThreadPool {
-    fn new(_threads: u32) -> Result<Self> {
-        todo!()
+    fn new(threads: u32) -> Result<Self> {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads as usize)
+            .build()?;
+        Ok(Self { pool })
     }
 
-    fn spawn<F>(&self, _f: F)
+    fn spawn<F>(&self, f: F)
     where
         F: FnOnce() + Send + 'static,
     {
-        todo!()
+        self.pool.spawn(f);
     }
 }

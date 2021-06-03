@@ -25,6 +25,8 @@ enum Repr {
     Bincode(bincode::Error),
     /// Serde JSON error
     SerdeJson(serde_json::Error),
+    /// Rayon ThreadPoolBuildError
+    RayonThreadPoolBuildError(rayon::ThreadPoolBuildError),
 }
 
 impl Error {
@@ -59,6 +61,9 @@ impl std::fmt::Display for Error {
             Repr::Sled(ref err) => write!(f, "{} (sled error)", err),
             Repr::Bincode(ref err) => write!(f, "{} (bincode (de)serialization error)", err),
             Repr::SerdeJson(ref err) => write!(f, "{} (json (de)serialization error)", err),
+            Repr::RayonThreadPoolBuildError(ref err) => {
+                write!(f, "{} (rayon's thread pool build error)", err)
+            }
         }
     }
 }
@@ -91,6 +96,14 @@ impl From<serde_json::Error> for Error {
     fn from(err: serde_json::Error) -> Self {
         Self {
             repr: Repr::SerdeJson(err),
+        }
+    }
+}
+
+impl From<rayon::ThreadPoolBuildError> for Error {
+    fn from(err: rayon::ThreadPoolBuildError) -> Self {
+        Self {
+            repr: Repr::RayonThreadPoolBuildError(err),
         }
     }
 }

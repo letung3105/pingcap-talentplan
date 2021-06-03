@@ -7,7 +7,6 @@ use std::thread::JoinHandle;
 /// A threadpool that spawns a fix number of threads on startup and maintains a fix number of
 /// active threads when it is active. Jobs are shared between threads via a multiple producer
 /// single receiver channel.
-#[derive(Clone)]
 #[allow(missing_debug_implementations)]
 pub struct SharedQueueThreadPool {
     job_tx: Sender<Thunk<'static>>,

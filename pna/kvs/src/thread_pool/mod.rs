@@ -1,13 +1,12 @@
 //! Implementations of different type of threadpool to parallelize operation on the data store
 
 mod naive;
-pub use naive::NaiveThreadPool;
-
-mod shared_queue;
-pub use shared_queue::SharedQueueThreadPool;
-
 mod rayon;
-pub use rayon::RayonThreadPool;
+mod shared_queue;
+
+pub use self::naive::NaiveThreadPool;
+pub use self::rayon::RayonThreadPool;
+pub use self::shared_queue::SharedQueueThreadPool;
 
 use crate::Result;
 
