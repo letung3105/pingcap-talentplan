@@ -4,20 +4,22 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
-/// A thread spawner, that reuses no thread
+/// A threadpool that spawns a fix number of threads on startup and maintains a fix number of
+/// active threads when it is active. Jobs are shared between threads via a multiple producer
+/// single receiver channel.
 #[derive(Clone)]
 #[allow(missing_debug_implementations)]
 pub struct SharedQueueThreadPool {
     job_tx: Sender<Thunk<'static>>,
-    context: Arc<SharedQueueThreadPoolContext>,
+    context: Arc<Context>,
 }
 
 impl ThreadPool for SharedQueueThreadPool {
     fn new(threads: u32) -> Result<Self> {
         let (job_tx, job_rx) = mpsc::channel();
-        let context = Arc::new(SharedQueueThreadPoolContext::new(job_rx));
+        let context = Arc::new(Context::new(job_rx));
         for _ in 0..threads {
-            Self::spawn_thread(context.clone());
+            spawn_in_pool(context.clone());
         }
         Ok(Self { job_tx, context })
     }
@@ -30,34 +32,32 @@ impl ThreadPool for SharedQueueThreadPool {
     }
 }
 
-impl SharedQueueThreadPool {
-    fn spawn_thread(context: Arc<SharedQueueThreadPoolContext>) -> JoinHandle<()> {
-        std::thread::spawn(move || {
-            let mut sentinel = SharedQueueThreadPoolSentinel::new(&context);
-            loop {
-                let job = {
-                    let job_rx = context.job_rx.lock().unwrap();
-                    job_rx.recv()
-                };
+fn spawn_in_pool(context: Arc<Context>) -> JoinHandle<()> {
+    std::thread::spawn(move || {
+        let mut sentinel = Sentinel::new(&context);
+        loop {
+            let job = {
+                let job_rx = context.job_rx.lock().unwrap();
+                job_rx.recv()
+            };
 
-                match job {
-                    // execute the queued job
-                    Ok(job) => job(),
-                    // stop the thread, the receive channel was closed
-                    Err(_) => break,
-                }
+            match job {
+                // execute the queued job
+                Ok(job) => job(),
+                // stop the thread, the receive channel was closed
+                Err(_) => break,
             }
-            sentinel.stop();
-        })
-    }
+        }
+        sentinel.stop();
+    })
 }
 
 /// Data structure holding the shared state between all threads in the pool
-struct SharedQueueThreadPoolContext {
+struct Context {
     job_rx: Mutex<Receiver<Thunk<'static>>>,
 }
 
-impl SharedQueueThreadPoolContext {
+impl Context {
     fn new(job_rx: Receiver<Thunk<'static>>) -> Self {
         Self {
             job_rx: Mutex::new(job_rx),
@@ -68,21 +68,21 @@ impl SharedQueueThreadPoolContext {
 /// Monitor the a thread's execution and see if a thread exits gracefully or it panics.
 /// If a thread did not finish execution gracefully, spawn a new thread to replaced the
 /// finished thread.
-struct SharedQueueThreadPoolSentinel<'a> {
-    context: &'a Arc<SharedQueueThreadPoolContext>,
+struct Sentinel<'a> {
+    context: &'a Arc<Context>,
     active: bool,
 }
 
-impl<'a> Drop for SharedQueueThreadPoolSentinel<'a> {
+impl<'a> Drop for Sentinel<'a> {
     fn drop(&mut self) {
         if self.active {
-            SharedQueueThreadPool::spawn_thread(self.context.clone());
+            spawn_in_pool(self.context.clone());
         }
     }
 }
 
-impl<'a> SharedQueueThreadPoolSentinel<'a> {
-    fn new(context: &'a Arc<SharedQueueThreadPoolContext>) -> Self {
+impl<'a> Sentinel<'a> {
+    fn new(context: &'a Arc<Context>) -> Self {
         Self {
             context,
             active: true,

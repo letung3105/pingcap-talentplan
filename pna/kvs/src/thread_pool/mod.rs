@@ -18,6 +18,7 @@ pub trait ThreadPool {
     fn new(threads: u32) -> Result<Self>
     where
         Self: Sized;
+
     // fn new(threads: u32) -> Result<Self>;
     /// Executes the given closure if possible, otherwise, queues the task for future execution
     fn spawn<F>(&self, f: F)
