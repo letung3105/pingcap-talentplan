@@ -24,3 +24,6 @@ pub trait ThreadPool {
     where
         F: FnOnce() + Send + 'static;
 }
+
+/// Heap-allocated thread's closure
+pub type Thunk<'a> = Box<dyn FnOnce() + Send + 'a>;
