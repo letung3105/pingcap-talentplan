@@ -10,17 +10,17 @@ use std::thread::JoinHandle;
 #[allow(missing_debug_implementations)]
 pub struct SharedQueueThreadPool {
     job_tx: Sender<Thunk<'static>>,
-    context: Arc<Context>,
+    _context: Arc<Context>,
 }
 
 impl ThreadPool for SharedQueueThreadPool {
     fn new(threads: u32) -> Result<Self> {
         let (job_tx, job_rx) = mpsc::channel();
-        let context = Arc::new(Context::new(job_rx));
+        let _context = Arc::new(Context::new(job_rx));
         for _ in 0..threads {
-            spawn_in_pool(context.clone());
+            spawn_in_pool(_context.clone());
         }
-        Ok(Self { job_tx, context })
+        Ok(Self { job_tx, _context })
     }
 
     fn spawn<F>(&self, f: F)

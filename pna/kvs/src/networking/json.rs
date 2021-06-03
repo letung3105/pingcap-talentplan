@@ -118,10 +118,7 @@ where
     P: ThreadPool,
 {
     /// Create a new JSON server
-    pub fn new<L>(engine: E, pool: P, logger: Option<L>) -> Self
-    where
-        L: Into<slog::Logger>,
-    {
+    pub fn new(engine: E, pool: P, logger: Option<slog::Logger>) -> Self {
         let logger = logger.map(|l| l.into()).unwrap_or({
             // TODO: make default log config
             let decorator = slog_term::TermDecorator::new().build();
