@@ -115,15 +115,14 @@ mod engines {
                     let tmpdir = TempDir::new().unwrap();
                     let kv_store = KvStore::open(tmpdir.path()).unwrap();
                     let server_thread_pool = SharedQueueThreadPool::new(*threads).unwrap();
-
                     let mut svr = JsonKvsServer::new(kv_store, server_thread_pool, None);
-                    let _svr_thread_handle = std::thread::spawn(move || {
+
+                    std::thread::spawn(move || {
                         svr.serve(([127, 0, 0, 1], 4000)).unwrap();
                     });
 
                     let mut rng = StdRng::from_seed([0u8; 32]);
                     let kv_pairs = prebuilt_kv_pairs(&mut rng, 1000, 100, 100);
-
                     let client_thread_pool = RayonThreadPool::new(*threads).unwrap();
 
                     b.iter(move || {
@@ -136,24 +135,19 @@ mod engines {
                                 let mut kvs_client =
                                     JsonKvsClient::connect(([127, 0, 0, 1], 4000)).unwrap();
 
-                                assert!(if let Ok(()) = kvs_client.set(k, v) {
-                                    true
-                                } else {
-                                    false
-                                });
-
-                                status_tx.send(()).unwrap();
+                                match kvs_client.set(k, v) {
+                                    Ok(_) => status_tx.send(true).unwrap(),
+                                    Err(_) => status_tx.send(false).unwrap(),
+                                }
                             });
                         }
 
                         let mut count = 0;
-                        loop {
+                        while count < kv_pairs.len() {
                             match status_rx.recv() {
-                                Ok(()) => {
+                                Ok(status) => {
+                                    assert!(status);
                                     count += 1;
-                                    if count == kv_pairs.len() {
-                                        break;
-                                    }
                                 }
                                 Err(_) => assert!(false),
                             }

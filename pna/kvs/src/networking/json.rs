@@ -100,7 +100,7 @@ where
             let stream = stream.unwrap();
             let engine = self.engine.clone();
             let logger = logger.new(o!( "peer_addr" => stream.peer_addr()?.to_string() ));
-            info!(logger, "Peer connected.");
+            debug!(logger, "Peer connected.");
 
             self.pool.spawn(move || {
                 if let Err(err) = Self::handle(engine, stream, logger.clone()) {
@@ -140,7 +140,7 @@ where
 
         for request in rstream.into_iter() {
             let request = request?;
-            info!(logger, "Received request"; "request" => format!("{:?}", request));
+            debug!(logger, "Received request"; "request" => format!("{:?}", request));
 
             match request {
                 Request::Set { key, value } => {
