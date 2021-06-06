@@ -29,5 +29,5 @@ tempfile = "3.0.7"
 walkdir = "2.2.7"
 
 [[bench]]
-name = "benches"
+name = "sequential"
 harness = false
