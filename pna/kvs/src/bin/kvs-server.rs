@@ -9,7 +9,7 @@ use slog::Drain;
 use std::env;
 use std::fs;
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::Path;
 use structopt::StructOpt;
 
 const KVS_ENGINE_FILENAME: &str = "KVS_ENGINE";
@@ -75,9 +75,9 @@ where
 
 fn current_directory_engine<P>(path: P) -> Result<Option<Engine>>
 where
-    P: Into<PathBuf>,
+    P: AsRef<Path>,
 {
-    let engine_path = path.into().join(KVS_ENGINE_FILENAME);
+    let engine_path = path.as_ref().join(KVS_ENGINE_FILENAME);
     if !engine_path.exists() {
         return Ok(None);
     }

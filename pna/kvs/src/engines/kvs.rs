@@ -2,6 +2,7 @@
 
 use crate::{Error, ErrorKind, KvsEngine, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
@@ -48,6 +49,15 @@ const GARBAGE_THRESHOLD: u64 = 4 * 1024 * 1024;
 /// ```
 #[derive(Debug, Clone)]
 pub struct KvStore {
+    // NOTE: Breaking up the lock
+    //
+    // # Requirements
+    // - Read from index and from disk on multiple threads at a time
+    // - Write command to disk while maintaining the index
+    // - Read in parallel with write, i.e., readers will always see a consistent state
+    //   - Maintaining an invariant that the index always points to a valid command in the log
+    //   - Maintaining other invariants for bookkeeping state
+    // - Periodically compact disk's data, while maintaining invariants for readers
     context: Arc<Mutex<Context>>,
 }
 
@@ -55,31 +65,29 @@ impl KvStore {
     /// Open the key-value store at the given path and return the store to the caller.
     pub fn open<P>(path: P) -> Result<Self>
     where
-        P: Into<PathBuf>,
+        P: AsRef<Path>,
     {
-        let active_path = path.into();
-
-        let prev_epochs = previous_epochs(&active_path)?;
+        let prev_epochs = previous_epochs(&path)?;
         let active_epoch = prev_epochs.last().map(|&e| e + 1).unwrap_or_default();
 
         // go through all log files, rebuild the index, and keep the handle to each log for later access
         let mut garbage = 0;
         let mut readers = HashMap::new();
-        let mut index_map = HashMap::new();
+        let mut index_map = BTreeMap::new();
         for prev_epoch in prev_epochs {
-            let prev_log_path = active_path.join(format!("epoch-{}.log", prev_epoch));
-            let prev_log = OpenOptions::new().read(true).open(&prev_log_path)?;
+            let prev_log_path = path.as_ref().join(format!("epoch-{}.log", prev_epoch));
+            let prev_log = OpenOptions::new().read(true).open(prev_log_path)?;
             let mut reader = BufReader::new(prev_log);
 
             garbage += build_index(&mut reader, &mut index_map, prev_epoch)?;
             readers.insert(prev_epoch, reader);
         }
         // create a new log file for this instance, taking a write handle and a read handle for it
-        let (writer, reader) = create_log(&active_path, active_epoch)?;
+        let (writer, reader) = create_log(&path, active_epoch)?;
         readers.insert(active_epoch, reader);
 
         let context = Context {
-            active_path,
+            active_path: path.as_ref().to_path_buf(),
             active_epoch,
             garbage,
             writer,
@@ -131,7 +139,7 @@ struct Context {
     garbage: u64,
     writer: BufWriter<File>,
     readers: HashMap<u64, BufReader<File>>,
-    index_map: HashMap<String, KvsLogEntryIndex>,
+    index_map: BTreeMap<String, KvsLogEntryIndex>,
 }
 
 impl Context {
@@ -287,7 +295,7 @@ struct KvsLogEntryIndex {
 
 fn build_index(
     reader: &mut BufReader<File>,
-    index_map: &mut HashMap<String, KvsLogEntryIndex>,
+    index_map: &mut BTreeMap<String, KvsLogEntryIndex>,
     epoch: u64,
 ) -> Result<u64> {
     reader.seek(SeekFrom::Start(0))?;
@@ -326,9 +334,9 @@ fn build_index(
 
 fn create_log<P>(path: P, epoch: u64) -> Result<(BufWriter<File>, BufReader<File>)>
 where
-    P: Into<PathBuf>,
+    P: AsRef<Path>,
 {
-    let mut log_path = path.into();
+    let mut log_path = path.as_ref().join(format!("epoch-{}.log", epoch));
     log_path.push(format!("epoch-{}.log", epoch));
 
     let writable_log = OpenOptions::new()
@@ -346,7 +354,7 @@ fn previous_epochs<P>(path: P) -> Result<Vec<u64>>
 where
     P: AsRef<Path>,
 {
-    let mut epochs: Vec<u64> = fs::read_dir(path.as_ref())?
+    let mut epochs: Vec<u64> = fs::read_dir(&path)?
         .filter_map(std::result::Result::ok)
         .map(|e| e.path())
         .filter(|p| p.is_file() && p.extension() == Some("log".as_ref()))
