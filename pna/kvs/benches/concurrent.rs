@@ -12,9 +12,9 @@ use tempfile::TempDir;
 
 use kvs::thread_pool::SharedQueueThreadPool;
 
-criterion_main!(sequential);
+criterion_main!(concurrent);
 criterion_group! {
-    name = sequential;
+    name = concurrent;
     config = Criterion::default().significance_level(0.05).sample_size(1000);
     targets = write_concurrent_shared_queue_kv_store
 }
@@ -42,16 +42,18 @@ pub fn write_concurrent_shared_queue_kv_store(c: &mut Criterion) {
                 let pool = SharedQueueThreadPool::new(nthreads).unwrap();
                 let mut server = JsonKvsServer::new(engine, pool, None);
 
-                let server_thread_handle = std::thread::spawn(move || server.serve(ADDR).unwrap());
                 rayon::scope(|_s| {
+                    // TODO: stop server right after the benchmark ends
+                    rayon::spawn(move || server.serve(ADDR).unwrap());
                     b.iter(|| {
                         kv_pairs.clone().into_par_iter().for_each(|(k, v)| {
+                            // TODO: find out why connection refused error occurs while running
+                            // benchmark?
                             let mut client = JsonKvsClient::connect(ADDR).unwrap();
                             client.set(k, v).unwrap();
                         });
                     })
                 });
-                server_thread_handle.thread().
             },
         );
     });
