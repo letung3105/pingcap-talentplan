@@ -42,9 +42,9 @@ pub fn write_concurrent_shared_queue_kv_store(c: &mut Criterion) {
                 let pool = SharedQueueThreadPool::new(nthreads).unwrap();
                 let server = JsonKvsServer::new(engine, pool, None);
 
-                rayon::scope(|_s| {
+                rayon::scope(|s| {
                     // TODO: stop server right after the benchmark ends
-                    rayon::spawn(move || server.serve(ADDR).unwrap());
+                    s.spawn(move |_| server.serve(ADDR).unwrap());
                     b.iter(|| {
                         kv_pairs.clone().into_par_iter().for_each(|(k, v)| {
                             // TODO: find out why connection refused error occurs while running
