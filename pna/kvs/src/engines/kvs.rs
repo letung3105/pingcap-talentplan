@@ -58,6 +58,16 @@ pub struct KvStore {
     //   - Maintaining an invariant that the index always points to a valid command in the log
     //   - Maintaining other invariants for bookkeeping state
     // - Periodically compact disk's data, while maintaining invariants for readers
+    //
+    // # How to break up lock
+    //
+    // - Understand and maintain the program sequential consistency
+    // - Identify immutable values
+    // - Duplicate instead of sharing
+    // - Break up data structures by role
+    // - Use specialized concurrent data structure
+    // - Postpone cleanup until later
+    // - Share flags and counters with atomics
     context: Arc<Mutex<Context>>,
 }
 
