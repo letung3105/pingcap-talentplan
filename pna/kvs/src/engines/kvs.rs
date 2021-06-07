@@ -9,6 +9,8 @@ use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 use std::sync::RwLock;
 use std::sync::{Arc, Mutex};
 
@@ -108,18 +110,20 @@ impl KvStore {
         let path = Arc::new(path.as_ref().to_path_buf());
         let index = Arc::new(RwLock::new(index));
 
-        let w_context = WriteContext {
-            path: Arc::clone(&path),
-            index: Arc::clone(&index),
-            writer,
-            gen,
-            garbage,
-        };
-
         let r_context = ReadContext {
             path: Arc::clone(&path),
             index: Arc::clone(&index),
+            merge_gen: Arc::new(AtomicU64::new(0)),
             readers: RefCell::new(readers),
+        };
+
+        let w_context = WriteContext {
+            path: Arc::clone(&path),
+            index: Arc::clone(&index),
+            r_context: r_context.clone(),
+            writer,
+            gen,
+            garbage,
         };
 
         Ok(Self {
@@ -153,7 +157,7 @@ impl KvsEngine for KvStore {
     /// Error from I/O operations will be propagated. If the key doesn't exist returns a
     /// `KeyNotFound` error.
     fn remove(&self, key: String) -> Result<()> {
-        todo!("new context types")
+        self.w_context.lock().unwrap().remove(key)
     }
 }
 
@@ -162,6 +166,7 @@ impl KvsEngine for KvStore {
 struct WriteContext {
     path: Arc<PathBuf>,
     index: Arc<RwLock<BTreeMap<String, LogIndex>>>,
+    r_context: ReadContext,
     writer: BufSeekWriter<File>,
     gen: u64,
     garbage: u64,
@@ -169,105 +174,102 @@ struct WriteContext {
 
 impl WriteContext {
     fn set(&mut self, key: String, val: String) -> Result<()> {
-        let mut index = self.index.write().unwrap();
+        let prev_index = {
+            let mut index = self.index.write().unwrap();
+            let pos = self.writer.pos;
+            let log_entry = LogEntry::Set(key.clone(), val);
+            bincode::serialize_into(&mut self.writer, &log_entry)?;
+            self.writer.flush()?;
+            let len = self.writer.pos - pos;
 
-        let pos = self.writer.pos;
-        let log_entry = LogEntry::Set(key.clone(), val);
-        bincode::serialize_into(&mut self.writer, &log_entry)?;
-        self.writer.flush()?;
-        let len = self.writer.pos - pos;
-
-        let log_entry = LogIndex {
-            gen: self.gen,
-            pos,
-            len,
+            let log_index = LogIndex {
+                gen: self.gen,
+                pos,
+                len,
+            };
+            index.insert(key, log_index)
         };
-        if let Some(prev_log_entry) = index.insert(key, log_entry) {
-            self.garbage += prev_log_entry.len;
+        if let Some(prev_index) = prev_index {
+            self.garbage += prev_index.len;
             if self.garbage > GARBAGE_THRESHOLD {
-                // self.merge()?;
+                self.merge()?;
             }
         };
-
         Ok(())
     }
 
     fn remove(&mut self, key: String) -> Result<()> {
-        let mut index = self.index.write().unwrap();
-
-        if !index.contains_key(&key) {
-            return Err(Error::new(
-                ErrorKind::KeyNotFound,
-                format!("Key '{}' does not exist", key),
-            ));
-        }
-
-        let log_entry = LogEntry::Rm(key.clone());
-        bincode::serialize_into(&mut self.writer, &log_entry)?;
-        self.writer.flush()?;
-
-        if let Some(prev_index) = index.remove(&key) {
+        let prev_index = {
+            let mut index = self.index.write().unwrap();
+            if !index.contains_key(&key) {
+                return Err(Error::new(
+                    ErrorKind::KeyNotFound,
+                    format!("Key '{}' does not exist", key),
+                ));
+            }
+            let log_entry = LogEntry::Rm(key.clone());
+            bincode::serialize_into(&mut self.writer, &log_entry)?;
+            self.writer.flush()?;
+            index.remove(&key)
+        };
+        if let Some(prev_index) = prev_index {
             self.garbage += prev_index.len;
             if self.garbage > GARBAGE_THRESHOLD {
-                // self.merge()?;
+                self.merge()?;
             }
         };
         Ok(())
     }
 
     fn merge(&mut self) -> Result<()> {
-        let merged_gen = self.gen + 1;
+        let mut index = self.index.write().unwrap();
+
+        // Copy 2 new logs, one for merging and one for the new active log
+        let merge_gen = self.gen + 1;
         let new_gen = self.gen + 2;
+        let (mut merged_writer, merged_reader) = create_log(self.path.as_ref(), merge_gen)?;
+        let (writer, reader) = create_log(self.path.as_ref(), new_gen)?;
 
+        let mut readers = self.r_context.readers.borrow_mut();
+        readers.insert(merge_gen, merged_reader);
+        readers.insert(new_gen, reader);
+
+        // Copy data to the merge log and update the index
+        for log_index in index.values_mut() {
+            let reader = readers
+                .entry(log_index.gen)
+                .or_insert(open_log(self.path.as_ref(), log_index.gen)?);
+
+            reader.seek(SeekFrom::Start(log_index.pos))?;
+            let mut entry_reader = reader.take(log_index.len);
+
+            let merge_pos = merged_writer.pos;
+            io::copy(&mut entry_reader, &mut merged_writer)?;
+
+            *log_index = LogIndex {
+                gen: merge_gen,
+                pos: merge_pos,
+                len: log_index.len,
+            };
+        }
+        merged_writer.flush()?;
+
+        // set merge generation, `ReadContext` in all threads will observe the new value and drop
+        // its the file handle
+        self.r_context.merge_gen.store(merge_gen, Ordering::SeqCst);
+
+        // remove stale log files
+        let prev_gens = previous_gens(self.path.as_ref())?;
+        let stale_gens = prev_gens.iter().filter(|&&gen| gen < merge_gen);
+        for gen in stale_gens {
+            let log_path = self.path.join(format!("gen-{}.log", gen));
+            fs::remove_file(log_path)?;
+        }
+
+        // update writer and log generation
+        self.writer = writer;
+        self.gen = new_gen;
         Ok(())
-
-        //    let (writer, reader) = create_log(self.path.as_ref(), self.epoch)?;
-        //    let epoch = self.epoch;
-        //    let (mut merged_writer, merged_reader) = create_log(self.path.as_ref(), merged_epoch)?;
-
-        //    let mut new_index_map = self.index_map.clone();
-        //    // copy data from old log files to the merged log file and update the in-memory index map
-        //    for index in new_index_map.values_mut() {
-        //        match self.readers.get_mut(&index.epoch) {
-        //            Some(reader) => {
-        //                reader.seek(SeekFrom::Start(index.offset))?;
-        //                let mut entry_reader = reader.take(index.length);
-
-        //                let merged_offset = merged_writer.stream_position()?;
-        //                io::copy(&mut entry_reader, &mut merged_writer)?;
-
-        //                *index = KvsLogEntryIndex {
-        //                    epoch: merged_epoch,
-        //                    offset: merged_offset,
-        //                    length: index.length,
-        //                };
-        //            }
-        //            None => {
-        //                return Err(Error::new(
-        //                    ErrorKind::CorruptedIndex,
-        //                    format!("Could not get reader for epoch #{}", index.epoch),
-        //                ))
-        //            }
-        //        }
-        //    }
-        //    self.index_map.clear();
-        //    self.index_map.clone_from(&new_index_map);
-        //    merged_writer.flush()?;
-
-        //    // remove stale log files
-        //    let stale_epochs: Vec<u64> = self
-        //        .readers
-        //        .keys()
-        //        .filter(|&&epoch| epoch < merged_epoch)
-        //        .cloned()
-        //        .collect();
-        //    for epoch in stale_epochs {
-        //        let log_path = self.path.join(format!("epoch-{}.log", epoch));
-        //        fs::remove_file(log_path)?;
-        //        self.readers.remove(&epoch);
-        //    }
-        //    self.garbage = 0;
-        //    Ok(())
     }
 }
 
@@ -276,6 +278,7 @@ impl WriteContext {
 struct ReadContext {
     path: Arc<PathBuf>,
     index: Arc<RwLock<BTreeMap<String, LogIndex>>>,
+    merge_gen: Arc<AtomicU64>,
     readers: RefCell<BTreeMap<u64, BufSeekReader<File>>>,
 }
 
@@ -286,6 +289,7 @@ impl Clone for ReadContext {
         Self {
             path: Arc::clone(&self.path),
             index: Arc::clone(&self.index),
+            merge_gen: Arc::clone(&self.merge_gen),
             readers: RefCell::new(BTreeMap::new()),
         }
     }
@@ -293,6 +297,8 @@ impl Clone for ReadContext {
 
 impl ReadContext {
     fn get(&self, key: String) -> Result<Option<String>> {
+        self.drop_stale_readers();
+
         let res = {
             let index = self.index.read().unwrap();
             index.get(&key).cloned()
@@ -320,6 +326,19 @@ impl ReadContext {
                 }
             }
         }
+    }
+
+    fn drop_stale_readers(&self) {
+        let merge_gen = self.merge_gen.load(Ordering::SeqCst);
+        let mut readers = self.readers.borrow_mut();
+        let gens: Vec<_> = readers
+            .keys()
+            .filter(|&g| *g < merge_gen)
+            .cloned()
+            .collect();
+        gens.iter().for_each(|&gen| {
+            readers.remove(&gen);
+        });
     }
 }
 
