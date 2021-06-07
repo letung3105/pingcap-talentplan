@@ -8,6 +8,7 @@ use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 use std::sync::{Arc, Mutex};
 
 const GARBAGE_THRESHOLD: u64 = 4 * 1024 * 1024;
@@ -292,6 +293,167 @@ impl Context {
     }
 }
 
+/// A database's writer that updates on-disk files and maintains consistent index to those files
+struct WriteContext {
+    path: Arc<PathBuf>,
+    index: Arc<RwLock<BTreeMap<String, LogIndex>>>,
+    writer: BufSeekWriter<File>,
+    epoch: u64,
+    garbage: u64,
+}
+
+impl WriteContext {
+    fn set(&mut self, key: String, val: String) -> Result<()> {
+        /*
+            When setting a value a key, a `Set` command is written to disk in a sequential log,
+            then the log pointer (file position) is stored in an in-memory index from key to pointer.
+        */
+        let mut index = self.index.write().unwrap();
+
+        let pos = self.writer.pos;
+        let command = LogEntry::Set(key.clone(), val);
+        bincode::serialize_into(&mut self.writer, &command)?;
+        self.writer.flush()?;
+
+        let log_entry = LogIndex {
+            gen: self.epoch,
+            pos,
+            len: self.writer.pos - pos,
+        };
+        if let Some(prev_log_entry) = index.insert(key, log_entry) {
+            self.garbage += prev_log_entry.len;
+            if self.garbage > GARBAGE_THRESHOLD {
+                // self.merge()?;
+            }
+        };
+
+        Ok(())
+    }
+
+    fn remove(&mut self, key: String) -> Result<()> {
+        /*
+            When removing a key, the store searches for the key in the index. If an index is found,
+            a `Remove` command is written to disk a in sequential log, and the key is removed from
+            the in-memory index.
+        */
+
+        let mut index = self.index.write().unwrap();
+
+        if !index.contains_key(&key) {
+            return Err(Error::new(
+                ErrorKind::KeyNotFound,
+                format!("Key '{}' does not exist", key),
+            ));
+        }
+
+        let command = LogEntry::Rm(key.clone());
+        bincode::serialize_into(&mut self.writer, &command)?;
+        self.writer.flush()?;
+
+        if let Some(prev_index) = index.remove(&key) {
+            self.garbage += prev_index.len;
+            if self.garbage > GARBAGE_THRESHOLD {
+                // self.merge()?;
+            }
+        };
+        Ok(())
+    }
+
+    fn merge(&mut self) -> Result<()> {
+        todo!()
+        //    // create 2 new log: one for the merged entries and one for the new active log
+        //    let merged_epoch = self.epoch + 1;
+        //    let new_epoch = self.epoch + 2;
+        //    self.epoch += 2;
+
+        //    let (writer, reader) = create_log(self.path.as_ref(), self.epoch)?;
+        //    let epoch = self.epoch;
+        //    let (mut merged_writer, merged_reader) = create_log(self.path.as_ref(), merged_epoch)?;
+
+        //    let mut new_index_map = self.index_map.clone();
+        //    // copy data from old log files to the merged log file and update the in-memory index map
+        //    for index in new_index_map.values_mut() {
+        //        match self.readers.get_mut(&index.epoch) {
+        //            Some(reader) => {
+        //                reader.seek(SeekFrom::Start(index.offset))?;
+        //                let mut entry_reader = reader.take(index.length);
+
+        //                let merged_offset = merged_writer.stream_position()?;
+        //                io::copy(&mut entry_reader, &mut merged_writer)?;
+
+        //                *index = KvsLogEntryIndex {
+        //                    epoch: merged_epoch,
+        //                    offset: merged_offset,
+        //                    length: index.length,
+        //                };
+        //            }
+        //            None => {
+        //                return Err(Error::new(
+        //                    ErrorKind::CorruptedIndex,
+        //                    format!("Could not get reader for epoch #{}", index.epoch),
+        //                ))
+        //            }
+        //        }
+        //    }
+        //    self.index_map.clear();
+        //    self.index_map.clone_from(&new_index_map);
+        //    merged_writer.flush()?;
+
+        //    // remove stale log files
+        //    let stale_epochs: Vec<u64> = self
+        //        .readers
+        //        .keys()
+        //        .filter(|&&epoch| epoch < merged_epoch)
+        //        .cloned()
+        //        .collect();
+        //    for epoch in stale_epochs {
+        //        let log_path = self.path.join(format!("epoch-{}.log", epoch));
+        //        fs::remove_file(log_path)?;
+        //        self.readers.remove(&epoch);
+        //    }
+        //    self.garbage = 0;
+        //    Ok(())
+    }
+}
+
+/// A database's reader that reads from on-disk files based on the current index
+struct ReadContext {
+    path: Arc<PathBuf>,
+    index: Arc<RwLock<BTreeMap<String, LogIndex>>>,
+    readers: BTreeMap<u64, BufSeekReader<File>>,
+}
+
+impl ReadContext {
+    fn get(&mut self, key: String) -> Result<Option<String>> {
+        /*
+            When retrieving a value for a key, the store searches for the key in the index. If
+            found an index, loads log entry at the corresponding log pointer, evaluates the command,
+            and returns the result.
+        */
+        let index = self.index.read().unwrap();
+        let get_result = index.get(&key).cloned();
+        match get_result {
+            Some(index) => match self.readers.get_mut(&index.gen) {
+                Some(reader) => {
+                    reader.seek(SeekFrom::Start(index.pos))?;
+                    match bincode::deserialize_from(reader)? {
+                        LogEntry::Set(_, value) => Ok(Some(value)),
+                        _ => Err(Error::new(
+                            ErrorKind::CorruptedLog,
+                            "Expecting a log entry for a set operation",
+                        )),
+                    }
+                }
+                None => Err(Error::new(
+                    ErrorKind::CorruptedIndex,
+                    format!("Could not get reader for epoch #{}", index.gen),
+                )),
+            },
+            None => Ok(None),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 enum LogEntry {
     Set(String, String),
@@ -315,7 +477,7 @@ fn build_index(
     loop {
         let pos = reader.pos;
         match bincode::deserialize_from(reader.by_ref()) {
-            Ok(command) => match command {
+            Ok(e) => match e {
                 LogEntry::Set(key, _) => {
                     let index = LogIndex {
                         gen: epoch,
