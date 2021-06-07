@@ -87,7 +87,7 @@ impl KvStore {
         for prev_epoch in prev_epochs {
             let prev_log_path = path.as_ref().join(format!("epoch-{}.log", prev_epoch));
             let prev_log = OpenOptions::new().read(true).open(prev_log_path)?;
-            let mut reader = KvsBufReader::new(prev_log)?;
+            let mut reader = BufSeekReader::new(prev_log)?;
 
             garbage += build_index(&mut reader, &mut index_map, prev_epoch)?;
             readers.insert(prev_epoch, reader);
@@ -147,29 +147,31 @@ struct Context {
     active_path: PathBuf,
     active_epoch: u64,
     garbage: u64,
-    writer: KvsBufWriter<File>,
-    readers: HashMap<u64, KvsBufReader<File>>,
-    index_map: BTreeMap<String, KvsLogEntryIndex>,
+    writer: BufSeekWriter<File>,
+    readers: HashMap<u64, BufSeekReader<File>>,
+    index_map: BTreeMap<String, LogIndex>,
 }
 
 impl Context {
     fn set(&mut self, key: String, val: String) -> Result<()> {
         /*
-            When setting a value a key, a `Set` command is written to disk in a sequential log,
-            then the log pointer (file offset) is stored in an in-memory index from key to pointer.
+            A `LogEntry` for `Set` command is written to a sequential log on disk, then the log
+            pointer (file position) is stored in an in-memory index from key to pointer.
         */
-        let active_offset = self.writer.offset;
-        let command = KvsLogEntry::Set(key.clone(), val);
-        bincode::serialize_into(&mut self.writer, &command)?;
-        self.writer.flush()?;
+        let log_entry = LogEntry::Set(key.clone(), val);
 
-        let index = KvsLogEntryIndex {
-            epoch: self.active_epoch,
-            offset: active_offset,
-            length: self.writer.offset - active_offset,
+        let pos = self.writer.pos;
+        bincode::serialize_into(&mut self.writer, &log_entry)?;
+        self.writer.flush()?;
+        let len = self.writer.pos - pos;
+
+        let index = LogIndex {
+            gen: self.active_epoch,
+            pos,
+            len,
         };
         if let Some(prev_index) = self.index_map.insert(key, index) {
-            self.garbage += prev_index.length;
+            self.garbage += prev_index.len;
             if self.garbage > GARBAGE_THRESHOLD {
                 self.merge()?;
             }
@@ -181,16 +183,16 @@ impl Context {
     fn get(&mut self, key: String) -> Result<Option<String>> {
         /*
             When retrieving a value for a key, the store searches for the key in the index. If
-            found an index, loads the command from the log at the corresponding log pointer,
-            evaluates the command, and returns the result.
+            found an index, loads the log entry at the corresponding log pointer, evaluates the
+            contained command, and returns the result.
         */
         let get_result = self.index_map.get(&key).cloned();
         match get_result {
-            Some(index) => match self.readers.get_mut(&index.epoch) {
+            Some(index) => match self.readers.get_mut(&index.gen) {
                 Some(reader) => {
-                    reader.seek(SeekFrom::Start(index.offset))?;
+                    reader.seek(SeekFrom::Start(index.pos))?;
                     match bincode::deserialize_from(reader)? {
-                        KvsLogEntry::Set(_, value) => Ok(Some(value)),
+                        LogEntry::Set(_, value) => Ok(Some(value)),
                         _ => Err(Error::new(
                             ErrorKind::CorruptedLog,
                             "Expecting a log entry for a set operation",
@@ -199,7 +201,7 @@ impl Context {
                 }
                 None => Err(Error::new(
                     ErrorKind::CorruptedIndex,
-                    format!("Could not get reader for epoch #{}", index.epoch),
+                    format!("Could not get reader for epoch #{}", index.gen),
                 )),
             },
             None => Ok(None),
@@ -209,8 +211,8 @@ impl Context {
     fn remove(&mut self, key: String) -> Result<()> {
         /*
             When removing a key, the store searches for the key in the index. If an index is found,
-            a `Remove` command is written to disk a in sequential log, and the key is removed from
-            the in-memory index.
+            a log entry for the remove command is written to the on-disk sequential log, and the key
+            is then removed from the index.
         */
 
         if !self.index_map.contains_key(&key) {
@@ -220,12 +222,12 @@ impl Context {
             ));
         }
 
-        let command = KvsLogEntry::Rm(key.clone());
+        let command = LogEntry::Rm(key.clone());
         bincode::serialize_into(&mut self.writer, &command)?;
         self.writer.flush()?;
 
         if let Some(prev_index) = self.index_map.remove(&key) {
-            self.garbage += prev_index.length;
+            self.garbage += prev_index.len;
             if self.garbage > GARBAGE_THRESHOLD {
                 self.merge()?;
             }
@@ -247,24 +249,24 @@ impl Context {
         let mut new_index_map = self.index_map.clone();
         // copy data from old log files to the merged log file and update the in-memory index map
         for index in new_index_map.values_mut() {
-            match self.readers.get_mut(&index.epoch) {
+            match self.readers.get_mut(&index.gen) {
                 Some(reader) => {
-                    reader.seek(SeekFrom::Start(index.offset))?;
-                    let mut entry_reader = reader.take(index.length);
+                    reader.seek(SeekFrom::Start(index.pos))?;
+                    let mut entry_reader = reader.take(index.len);
 
-                    let merged_offset = merged_writer.offset;
+                    let merged_pos = merged_writer.pos;
                     io::copy(&mut entry_reader, &mut merged_writer)?;
 
-                    *index = KvsLogEntryIndex {
-                        epoch: merged_epoch,
-                        offset: merged_offset,
-                        length: index.length,
+                    *index = LogIndex {
+                        gen: merged_epoch,
+                        pos: merged_pos,
+                        len: index.len,
                     };
                 }
                 None => {
                     return Err(Error::new(
                         ErrorKind::CorruptedIndex,
-                        format!("Could not get reader for epoch #{}", index.epoch),
+                        format!("Could not get reader for epoch #{}", index.gen),
                     ))
                 }
             }
@@ -291,42 +293,42 @@ impl Context {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-enum KvsLogEntry {
+enum LogEntry {
     Set(String, String),
     Rm(String),
 }
 
 #[derive(Debug, Clone)]
-struct KvsLogEntryIndex {
-    epoch: u64,
-    offset: u64,
-    length: u64,
+struct LogIndex {
+    gen: u64,
+    pos: u64,
+    len: u64,
 }
 
 fn build_index(
-    reader: &mut KvsBufReader<File>,
-    index_map: &mut BTreeMap<String, KvsLogEntryIndex>,
+    reader: &mut BufSeekReader<File>,
+    index_map: &mut BTreeMap<String, LogIndex>,
     epoch: u64,
 ) -> Result<u64> {
     reader.seek(SeekFrom::Start(0))?;
     let mut garbage = 0;
     loop {
-        let offset = reader.offset;
+        let pos = reader.pos;
         match bincode::deserialize_from(reader.by_ref()) {
             Ok(command) => match command {
-                KvsLogEntry::Set(key, _) => {
-                    let index = KvsLogEntryIndex {
-                        epoch,
-                        offset,
-                        length: reader.offset - offset,
+                LogEntry::Set(key, _) => {
+                    let index = LogIndex {
+                        gen: epoch,
+                        pos,
+                        len: reader.pos - pos,
                     };
                     if let Some(prev_index) = index_map.insert(key, index) {
-                        garbage += prev_index.length;
+                        garbage += prev_index.len;
                     };
                 }
-                KvsLogEntry::Rm(key) => {
+                LogEntry::Rm(key) => {
                     if let Some(prev_index) = index_map.remove(&key) {
-                        garbage += prev_index.length;
+                        garbage += prev_index.len;
                     };
                 }
             },
@@ -342,7 +344,7 @@ fn build_index(
     Ok(garbage)
 }
 
-fn create_log<P>(path: P, epoch: u64) -> Result<(KvsBufWriter<File>, KvsBufReader<File>)>
+fn create_log<P>(path: P, epoch: u64) -> Result<(BufSeekWriter<File>, BufSeekReader<File>)>
 where
     P: AsRef<Path>,
 {
@@ -354,8 +356,8 @@ where
         .open(&log_path)?;
     let readable_log = OpenOptions::new().read(true).open(&log_path)?;
 
-    let writer = KvsBufWriter::new(writable_log)?;
-    let reader = KvsBufReader::new(readable_log)?;
+    let writer = BufSeekWriter::new(writable_log)?;
+    let reader = BufSeekReader::new(readable_log)?;
     Ok((writer, reader))
 }
 
@@ -381,15 +383,15 @@ where
 }
 
 #[derive(Debug)]
-struct KvsBufWriter<W>
+struct BufSeekWriter<W>
 where
     W: Write,
 {
-    offset: u64,
+    pos: u64,
     writer: BufWriter<W>,
 }
 
-impl<W> KvsBufWriter<W>
+impl<W> BufSeekWriter<W>
 where
     W: Write,
 {
@@ -397,19 +399,19 @@ where
     where
         W: Write + Seek,
     {
-        let offset = w.seek(SeekFrom::Current(0))?;
+        let pos = w.seek(SeekFrom::Current(0))?;
         let writer = BufWriter::new(w);
-        Ok(Self { offset, writer })
+        Ok(Self { pos, writer })
     }
 }
 
-impl<W> Write for KvsBufWriter<W>
+impl<W> Write for BufSeekWriter<W>
 where
     W: Write,
 {
     fn write(&mut self, b: &[u8]) -> std::result::Result<usize, io::Error> {
         self.writer.write(b).and_then(|bytes_written| {
-            self.offset += bytes_written as u64;
+            self.pos += bytes_written as u64;
             Ok(bytes_written)
         })
     }
@@ -420,43 +422,43 @@ where
 }
 
 #[derive(Debug)]
-struct KvsBufReader<R>
+struct BufSeekReader<R>
 where
     R: Read + Seek,
 {
-    offset: u64,
+    pos: u64,
     reader: BufReader<R>,
 }
 
-impl<R> KvsBufReader<R>
+impl<R> BufSeekReader<R>
 where
     R: Read + Seek,
 {
     fn new(mut r: R) -> Result<Self> {
-        let offset = r.seek(SeekFrom::Current(0))?;
+        let pos = r.seek(SeekFrom::Current(0))?;
         let reader = BufReader::new(r);
-        Ok(Self { offset, reader })
+        Ok(Self { pos, reader })
     }
 }
 
-impl<R> Read for KvsBufReader<R>
+impl<R> Read for BufSeekReader<R>
 where
     R: Read + Seek,
 {
     fn read(&mut self, b: &mut [u8]) -> std::result::Result<usize, io::Error> {
         self.reader.read(b).and_then(|bytes_read| {
-            self.offset += bytes_read as u64;
+            self.pos += bytes_read as u64;
             Ok(bytes_read)
         })
     }
 }
-impl<R> Seek for KvsBufReader<R>
+impl<R> Seek for BufSeekReader<R>
 where
     R: Read + Seek,
 {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         self.reader.seek(pos).and_then(|posn| {
-            self.offset = posn;
+            self.pos = posn;
             Ok(posn)
         })
     }
