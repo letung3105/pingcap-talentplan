@@ -1,3 +1,5 @@
 target/
 dbfiles/
+
 **/epoch-*.log
+**/KVS_ENGINE

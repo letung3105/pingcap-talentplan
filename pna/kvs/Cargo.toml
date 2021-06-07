@@ -31,3 +31,7 @@ walkdir = "2.2.7"
 [[bench]]
 name = "sequential"
 harness = false
+
+[[bench]]
+name = "concurrent"
+harness = false
