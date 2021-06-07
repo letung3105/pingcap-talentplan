@@ -82,7 +82,7 @@ where
     E: KvsEngine,
     P: ThreadPool,
 {
-    fn serve<A>(&mut self, addr: A) -> Result<()>
+    fn serve<A>(&self, addr: A) -> Result<()>
     where
         A: Into<SocketAddr>,
     {
@@ -102,7 +102,7 @@ where
             let logger = logger.new(o!( "peer_addr" => stream.peer_addr()?.to_string() ));
 
             self.pool.spawn(move || {
-                if let Err(err) = Self::handle(engine, stream, logger.clone()) {
+                if let Err(err) = Self::handle(engine, stream) {
                     error!(logger, "Could not handle client"; "error" => format!("{}", err));
                 }
             });
@@ -133,7 +133,7 @@ where
         }
     }
 
-    fn handle(engine: E, stream: TcpStream, logger: slog::Logger) -> Result<()> {
+    fn handle(engine: E, stream: TcpStream) -> Result<()> {
         let mut wstream = BufWriter::new(stream.try_clone()?);
         let rstream = Deserializer::new(IoRead::new(BufReader::new(stream)));
 

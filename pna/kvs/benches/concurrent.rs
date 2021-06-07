@@ -40,7 +40,7 @@ pub fn write_concurrent_shared_queue_kv_store(c: &mut Criterion) {
                 let tmpdir = TempDir::new().unwrap();
                 let engine = KvStore::open(tmpdir.path()).unwrap();
                 let pool = SharedQueueThreadPool::new(nthreads).unwrap();
-                let mut server = JsonKvsServer::new(engine, pool, None);
+                let server = JsonKvsServer::new(engine, pool, None);
 
                 rayon::scope(|_s| {
                     // TODO: stop server right after the benchmark ends

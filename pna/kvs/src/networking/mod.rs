@@ -25,7 +25,7 @@ pub trait KvsClient {
 /// Server interface
 pub trait KvsServer {
     /// Start accepting requests on the given socket address
-    fn serve<A>(&mut self, addr: A) -> Result<()>
+    fn serve<A>(&self, addr: A) -> Result<()>
     where
         A: Into<SocketAddr>;
 }

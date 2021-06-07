@@ -69,7 +69,7 @@ where
     E: KvsEngine,
     P: ThreadPool,
 {
-    let mut kvs_server = JsonKvsServer::new(engine, pool, Some(logger));
+    let kvs_server = JsonKvsServer::new(engine, pool, Some(logger));
     kvs_server.serve(addr)
 }
 
