@@ -24,8 +24,8 @@ Leson plan:
 + [x] Building block 02
 + [x] Project 02
 + [x] Building block 03
-+ [ ] Project 03
-+ [ ] Building block 04
++ [x] Project 03
++ [x] Building block 04
 + [ ] Project 04
 + [ ] Building block 05
 + [ ] Project 05
