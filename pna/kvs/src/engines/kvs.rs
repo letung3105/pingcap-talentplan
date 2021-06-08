@@ -298,8 +298,6 @@ impl Clone for ReadContext {
 
 impl ReadContext {
     fn get(&self, key: String) -> Result<Option<String>> {
-        self.drop_stale_readers();
-
         let res = {
             let index = self.index.read().unwrap();
             index.get(&key).cloned()
@@ -308,6 +306,7 @@ impl ReadContext {
         match res {
             None => Ok(None),
             Some(index) => {
+                self.drop_stale_readers();
                 let log_entry = {
                     let mut readers = self.readers.borrow_mut();
                     let reader = readers
