@@ -1,4 +1,19 @@
+use kvs::{KvStore, SledKvsEngine};
 use rand::{distributions::Alphanumeric, prelude::*};
+use tempfile::TempDir;
+
+pub fn prep_kv_store() -> (KvStore, TempDir) {
+    let tmpdir = TempDir::new().unwrap();
+    let engine = KvStore::open(tmpdir.path()).unwrap();
+    (engine, tmpdir)
+}
+
+pub fn prep_sled() -> (SledKvsEngine, TempDir) {
+    let tmpdir = TempDir::new().unwrap();
+    let db = sled::Config::default().path(tmpdir.path()).open().unwrap();
+    let engine = SledKvsEngine::new(db);
+    (engine, tmpdir)
+}
 
 pub fn prebuilt_kv_pairs<R>(
     rng: &mut R,
