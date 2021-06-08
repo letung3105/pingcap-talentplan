@@ -1,6 +1,7 @@
 //! An `KvsEngine` that uses log-structure file system.
 
 use crate::{Error, ErrorKind, KvsEngine, Result};
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -11,7 +12,6 @@ use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
-use std::sync::RwLock;
 use std::sync::{Arc, Mutex};
 
 const GARBAGE_THRESHOLD: u64 = 4 * 1024 * 1024;
@@ -96,7 +96,7 @@ impl KvStore {
 
         // go through all log files, rebuild the index, and keep the handle to each log for later access
         let mut garbage = 0;
-        let mut index = BTreeMap::new();
+        let mut index = DashMap::new();
         let mut readers = BTreeMap::new();
         for prev_gen in prev_gens {
             let mut reader = open_log(&path, prev_gen)?;
@@ -108,7 +108,7 @@ impl KvStore {
         readers.insert(gen, reader);
 
         let path = Arc::new(path.as_ref().to_path_buf());
-        let index = Arc::new(RwLock::new(index));
+        let index = Arc::new(index);
 
         let r_context = ReadContext {
             path: Arc::clone(&path),
@@ -165,7 +165,7 @@ impl KvsEngine for KvStore {
 #[derive(Debug)]
 struct WriteContext {
     path: Arc<PathBuf>,
-    index: Arc<RwLock<BTreeMap<String, LogIndex>>>,
+    index: Arc<DashMap<String, LogIndex>>,
     r_context: ReadContext,
     writer: BufSeekWriter<File>,
     gen: u64,
@@ -174,23 +174,17 @@ struct WriteContext {
 
 impl WriteContext {
     fn set(&mut self, key: String, val: String) -> Result<()> {
-        let prev_index = {
-            let mut index = self.index.write().unwrap();
+        let pos = self.writer.pos;
+        let log_entry = LogEntry::Set(key.clone(), val);
+        bincode::serialize_into(&mut self.writer, &log_entry)?;
+        self.writer.flush()?;
 
-            let pos = self.writer.pos;
-            let log_entry = LogEntry::Set(key.clone(), val);
-            bincode::serialize_into(&mut self.writer, &log_entry)?;
-            self.writer.flush()?;
-
-            let len = self.writer.pos - pos;
-            let log_index = LogIndex {
-                gen: self.gen,
-                pos,
-                len,
-            };
-            index.insert(key, log_index)
+        let log_index = LogIndex {
+            gen: self.gen,
+            pos,
+            len: self.writer.pos - pos,
         };
-        if let Some(prev_index) = prev_index {
+        if let Some(prev_index) = self.index.insert(key, log_index) {
             self.garbage += prev_index.len;
             if self.garbage > GARBAGE_THRESHOLD {
                 self.merge()?;
@@ -200,20 +194,18 @@ impl WriteContext {
     }
 
     fn remove(&mut self, key: String) -> Result<()> {
-        let prev_index = {
-            let mut index = self.index.write().unwrap();
-            if !index.contains_key(&key) {
-                return Err(Error::new(
-                    ErrorKind::KeyNotFound,
-                    format!("Key '{}' does not exist", key),
-                ));
-            }
-            let log_entry = LogEntry::Rm(key.clone());
-            bincode::serialize_into(&mut self.writer, &log_entry)?;
-            self.writer.flush()?;
-            index.remove(&key)
-        };
-        if let Some(prev_index) = prev_index {
+        if !self.index.contains_key(&key) {
+            return Err(Error::new(
+                ErrorKind::KeyNotFound,
+                format!("Key '{}' does not exist", key),
+            ));
+        }
+
+        let log_entry = LogEntry::Rm(key.clone());
+        bincode::serialize_into(&mut self.writer, &log_entry)?;
+        self.writer.flush()?;
+
+        if let Some((_, prev_index)) = self.index.remove(&key) {
             self.garbage += prev_index.len;
             if self.garbage > GARBAGE_THRESHOLD {
                 self.merge()?;
@@ -223,8 +215,6 @@ impl WriteContext {
     }
 
     fn merge(&mut self) -> Result<()> {
-        let mut index = self.index.write().unwrap();
-
         // Copy 2 new logs, one for merging and one for the new active log
         let merge_gen = self.gen + 1;
         let new_gen = self.gen + 2;
@@ -233,7 +223,7 @@ impl WriteContext {
 
         // Copy data to the merge log and update the index
         let mut readers = self.r_context.readers.borrow_mut();
-        for log_index in index.values_mut() {
+        for mut log_index in self.index.iter_mut() {
             let reader = readers
                 .entry(log_index.gen)
                 .or_insert(open_log(self.path.as_ref(), log_index.gen)?);
@@ -278,7 +268,7 @@ impl WriteContext {
 #[derive(Debug)]
 struct ReadContext {
     path: Arc<PathBuf>,
-    index: Arc<RwLock<BTreeMap<String, LogIndex>>>,
+    index: Arc<DashMap<String, LogIndex>>,
     merge_gen: Arc<AtomicU64>,
     readers: RefCell<BTreeMap<u64, BufSeekReader<File>>>,
 }
@@ -298,12 +288,7 @@ impl Clone for ReadContext {
 
 impl ReadContext {
     fn get(&self, key: String) -> Result<Option<String>> {
-        let res = {
-            let index = self.index.read().unwrap();
-            index.get(&key).cloned()
-        };
-
-        match res {
+        match self.index.get(&key) {
             None => Ok(None),
             Some(index) => {
                 self.drop_stale_readers();
@@ -357,7 +342,7 @@ struct LogIndex {
 
 fn build_index(
     reader: &mut BufSeekReader<File>,
-    index_map: &mut BTreeMap<String, LogIndex>,
+    index_map: &mut DashMap<String, LogIndex>,
     gen: u64,
 ) -> Result<u64> {
     reader.seek(SeekFrom::Start(0))?;
@@ -374,7 +359,7 @@ fn build_index(
                     };
                 }
                 LogEntry::Rm(key) => {
-                    if let Some(prev_index) = index_map.remove(&key) {
+                    if let Some((_, prev_index)) = index_map.remove(&key) {
                         garbage += prev_index.len;
                     };
                 }

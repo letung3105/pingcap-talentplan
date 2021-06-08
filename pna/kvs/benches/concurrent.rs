@@ -17,7 +17,7 @@ const VAL_SIZE: usize = 1000;
 const NTHREADS: [usize; 5] = [1, 2, 4, 6, 8];
 
 pub fn concurrent_write_bulk(c: &mut Criterion) {
-    let mut g = c.benchmark_group("concurrent_write_bulkd");
+    let mut g = c.benchmark_group("concurrent_write_bulk");
     g.throughput(Throughput::Bytes((ITER * (KEY_SIZE + VAL_SIZE)) as u64));
     NTHREADS.iter().for_each(|&nthreads| {
         g.bench_with_input(
