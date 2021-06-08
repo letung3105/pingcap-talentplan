@@ -13,13 +13,13 @@ use tempfile::TempDir;
 const ITER: usize = 1000;
 const KEY_SIZE: usize = 1000;
 const VAL_SIZE: usize = 1000;
-// TODO: get number of CPU cores
-const NTHREADS: [usize; 5] = [1, 2, 4, 6, 8];
 
 pub fn concurrent_write_bulk(c: &mut Criterion) {
     let mut g = c.benchmark_group("concurrent_write_bulk");
     g.throughput(Throughput::Bytes((ITER * (KEY_SIZE + VAL_SIZE)) as u64));
-    NTHREADS.iter().for_each(|&nthreads| {
+
+    let phys_cpus = num_cpus::get_physical();
+    (2..=phys_cpus*2).into_iter().step_by(2).for_each(|nthreads| {
         g.bench_with_input(
             BenchmarkId::new("kvs", nthreads),
             &(Engine::Kvs, nthreads),
@@ -85,7 +85,9 @@ where
 pub fn concurrent_read_bulk(c: &mut Criterion) {
     let mut g = c.benchmark_group("concurrent_read_bulk");
     g.throughput(Throughput::Bytes((ITER * (KEY_SIZE)) as u64));
-    NTHREADS.iter().for_each(|&nthreads| {
+
+    let phys_cpus = num_cpus::get_physical();
+    (2..=phys_cpus*2).into_iter().step_by(2).for_each(|nthreads| {
         g.bench_with_input(
             BenchmarkId::new("kvs", nthreads),
             &(Engine::Kvs, nthreads),

@@ -433,6 +433,7 @@ dependencies = [
  "criterion",
  "crossbeam-utils 0.6.6",
  "dashmap",
+ "num_cpus",
  "panic-control",
  "predicates",
  "rand",
